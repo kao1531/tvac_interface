@@ -207,7 +207,7 @@ app.layout = html.Div([
 
             # status tab
             html.Div([
-                dcc.Graph(figure=fig, style={'border': "2px solid black", 'width': '37vw', 'margin-right': "1vw"}, 
+                dcc.Graph(figure=fig, style={'border': "2px solid black", 'width': '37vw', 'margin-right': "1vw", 'height': "55vh"}, 
                           config={'displayModeBar': False}),
                 dcc.Checklist(
                     id="tc-select-panel",
@@ -221,7 +221,7 @@ app.layout = html.Div([
                             "value": f"{i+1}"
                         } for i, color in enumerate(
                                 ['red', 'blue', 'green', 'yellow', 'purple', 'orange', 'pink', 'cyan', 'black', 'brown',
-                                'grey', 'lime', 'navy', 'maroon', 'silver', 'teal', 'olive', 'aqua', 'fuchsia', 'gray'])
+                                'grey', 'lime', 'navy', 'maroon', 'silver', 'teal'])
                     ],
                     labelStyle={"display": "flex", "align-items": "center"}
                 ),
@@ -233,7 +233,7 @@ app.layout = html.Div([
                             html.Tr([
                                 html.Td(f"{i+1}", style={'width': '2vw'}),  
                                 html.Td(dcc.Input(id=f'location-{i+1}-in', type='text', placeholder=f'Location {i+1}', style={'width': '11vw'}))  
-                            ]) for i in range(20)
+                            ]) for i in range(16)
                         ])  
                     ], style={'border': '1px solid black', 'table-layout': 'fixed'})  
                 ]),
@@ -511,7 +511,7 @@ app.layout = html.Div([
                                                 'border-radius': "30%",
                                                 'margin': "1px"})
                             ],
-                            style={'display': 'flex', 'align-items': 'center', 'margin': '0px'}) for i in range(20)
+                            style={'display': 'flex', 'align-items': 'center', 'margin': '0px'}) for i in range(16)
                         ]) 
                     ], style={'padding': '0px 1vw', 'margin-left': "1vw", 'border': "2px solid black", 'background-color': "rgb(39,68,90)"}),
 
@@ -527,7 +527,7 @@ app.layout = html.Div([
                                                 'border-radius': "30%",
                                                 'margin': "1px"})
                             ],
-                            style={'display': 'flex', 'align-items': 'center', 'margin': '0px'}) for i in range(20)
+                            style={'display': 'flex', 'align-items': 'center', 'margin': '0px'}) for i in range(16)
                         ]) 
                     ], style={'padding': '0px 1vw', 'border': "2px solid black", 'background-color': "rgb(39,68,90)"}),
 
@@ -543,7 +543,7 @@ app.layout = html.Div([
                                                 'border-radius': "30%",
                                                 'margin': "1px"})
                             ],
-                            style={'display': 'flex', 'align-items': 'center', 'margin': '0px'}) for i in range(20)
+                            style={'display': 'flex', 'align-items': 'center', 'margin': '0px'}) for i in range(16)
                         ]) 
                     ], style={'padding': '0px 1vw', 'border': "2px solid black", 'background-color': "rgb(39,68,90)"}),
 
@@ -559,7 +559,7 @@ app.layout = html.Div([
                                                 'border-radius': "30%",
                                                 'margin': "1px"})
                             ],
-                            style={'display': 'flex', 'align-items': 'center', 'margin': '0px'}) for i in range(20)
+                            style={'display': 'flex', 'align-items': 'center', 'margin': '0px'}) for i in range(16)
                         ]) 
                     ], style={'padding': '0px 1vw', 'margin-right': "1vw", 'border': "2px solid black", 'background-color': "rgb(39,68,90)"}),
 
