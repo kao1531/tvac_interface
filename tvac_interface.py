@@ -2,9 +2,14 @@
 # visit http://127.0.0.1:8050/ in your web browser.
 
 
-from dash import Dash, dcc, html, Input, Output, ctx, callback, MATCH, State
+from dash import Dash, dcc, html, Input, Output, ctx, callback, MATCH, State, ALL
 import plotly.express as px
 import pandas as pd
+from collections import deque
+import random
+import plotly.graph_objs as go
+import json
+import os
 
 
 app = Dash(__name__)
@@ -20,7 +25,26 @@ fig = px.scatter(df, x="sepal_width", y="sepal_length")
 
 # create CSS file that will make it look better
 
+# define some constants
+
+# line graph colors
+tc_colors = ['red', 'blue', 'green', 'yellow', 'purple', 'orange', 'pink', 'cyan', 'black', 'brown',
+             'grey', 'lime', 'navy', 'maroon', 'silver', 'teal']
+
+# maximum number of points to show at a time on the plot
+MAX_LEN = 20
+
+# number of thermocouples
+NUM_TC = 16
+
 app.layout = html.Div([
+    # time interval
+    dcc.Interval(id='int-comp', interval=1000, n_intervals=0),
+
+    # TC data store
+    dcc.Store(id='tc-data-store', data={'time': [], 
+                                        **{f'{i+1}': [] for i in range(NUM_TC)}}),
+
     # top half
     html.Div([html.Table(
                 [html.Caption("Heater Control State"),
@@ -107,12 +131,13 @@ app.layout = html.Div([
             ),
 
             html.Button('E-Stop', id='btn-estop', n_clicks=0,
-                        style={'height': "7vh", # TODO: make dynamic sizes
+                        style={'height': "9vh", 
                             'background-color': "red",
                             'color': "white",
                             'font-size': "3vh",
                             'padding:': "1vh 1vh",
-                            'margin-left': "15vw"}
+                            'margin-left': "15vw",
+                            'clip-path': 'polygon(30% 0%, 70% 0%, 100% 30%, 100% 70%, 70% 100%, 30% 100%, 0% 70%, 0% 30%)',}
             ),
 
         ], 
@@ -149,7 +174,7 @@ app.layout = html.Div([
             html.Table([
                 html.Tr([
                     html.Td(
-                        dcc.Input(id="shroud-temp-in", type="number", debounce=True, placeholder="Shroud Temp"),
+                        html.Div(id="shroud-temp-out", style={'margin-bottom': "1vh", 'border': "2px solid black", 'padding': "0px 1vw", 'margin-bottom': '0.5vh'}),
                         style={'margin': "3vh auto", 'padding': "1vh"})
                 ], style={'text-align': "center"}),
                 html.Tr([
@@ -159,12 +184,12 @@ app.layout = html.Div([
                 ]),
                 html.Tr([
                     html.Td(
-                        dcc.Input(id="obj-temp-in", type="number", debounce=True, placeholder="Object Temp"),
+                        html.Div(id="obj-temp-out", style={'margin-bottom': "1vh", 'border': "2px solid black", 'padding': "0px 1vw", 'margin-bottom': '0.5vh'}),
                         style={'margin': "5vh auto", 'padding': "1vh", 'text-align': "center"})
                 ]),
                 html.Tr([
                     html.Td(
-                        dcc.Input(id="heater-temp-in", type="number", debounce=True, placeholder="Heater Temp"),
+                        html.Div(id="heater-temp-out", style={'margin-bottom': "1vh", 'border': "2px solid black", 'padding': "0px 1vw", 'margin-bottom': '0.5vh'}),
                         style={'margin': "0vh auto", 'padding': "1vh", 'text-align': "center"})
                 ]),
                 html.Tr(
@@ -207,7 +232,7 @@ app.layout = html.Div([
 
             # status tab
             html.Div([
-                dcc.Graph(figure=fig, style={'border': "2px solid black", 'width': '37vw', 'margin-right': "1vw", 'height': "55vh"}, 
+                dcc.Graph(id='status-plot', figure=fig, style={'border': "2px solid black", 'width': '37vw', 'margin-right': "1vw", 'height': "55vh"}, 
                           config={'displayModeBar': False}),
                 dcc.Checklist(
                     id="tc-select-panel",
@@ -215,13 +240,11 @@ app.layout = html.Div([
                         {
                             "label": [html.Span(f"TC{i+1}", style={"font-size": "2.3vh", "padding-left": '0.5vw', 'width': "3.2vw"}),
                                     html.Div('', style={'height': "2vh", 'width': "2vw", 'background-color': color}),
-                                    html.Div(f"{i+1}.00", style={"font-size": "2vh", "padding": '0px 1vw', 'background-color': "rgb(180,180,180)",
+                                    html.Div(id=f'tc{i+1}-out', style={"font-size": "2vh", "padding": '0px 1vw', 'background-color': "rgb(180,180,180)",
                                                                  "border": '2px solid black', "margin-left": '2vw', "width": "2vw",
                                                                  "margin-top": '0.5vh', "margin-right": '3vw'})],
                             "value": f"{i+1}"
-                        } for i, color in enumerate(
-                                ['red', 'blue', 'green', 'yellow', 'purple', 'orange', 'pink', 'cyan', 'black', 'brown',
-                                'grey', 'lime', 'navy', 'maroon', 'silver', 'teal'])
+                        } for i, color in enumerate(tc_colors)
                     ],
                     labelStyle={"display": "flex", "align-items": "center"}
                 ),
@@ -233,7 +256,7 @@ app.layout = html.Div([
                             html.Tr([
                                 html.Td(f"{i+1}", style={'width': '2vw'}),  
                                 html.Td(dcc.Input(id=f'location-{i+1}-in', type='text', placeholder=f'Location {i+1}', style={'width': '11vw'}))  
-                            ]) for i in range(16)
+                            ]) for i in range(NUM_TC)
                         ])  
                     ], style={'border': '1px solid black', 'table-layout': 'fixed'})  
                 ]),
@@ -282,7 +305,7 @@ app.layout = html.Div([
                     ]),
 
                     html.Tr([
-                        html.Td(html.Button('', id='btn-h1-override-on-off',
+                        html.Td(html.Button('', id='btn-h1-override-on-off', disabled=True,
                             style={
                                 'height': "10vh", 
                                 'width': "10vh",
@@ -353,7 +376,7 @@ app.layout = html.Div([
                 ]),
 
                 html.Tr([
-                    html.Td(html.Button('', id='btn-heater-override-on-off',
+                    html.Td(html.Button('', id='btn-heater-override-on-off', disabled=True,
                         style={
                             'height': "10vh",
                             'width': "10vh",
@@ -424,7 +447,7 @@ app.layout = html.Div([
                 ]),
 
                 html.Tr([
-                    html.Td(html.Button('', id='btn-ln2-override-on-off',
+                    html.Td(html.Button('', id='btn-ln2-override-on-off', disabled=True,
                         style={
                             'height': "10vh", 
                             'width': "10vh",
@@ -462,33 +485,77 @@ app.layout = html.Div([
             # temp tab
             html.Div([
                 html.Div([
-                    html.Div([
-                        html.Div("Pass Through"),
-                        dcc.Input(id="temp-pass-through-max-in", type="number", debounce=True, placeholder="Max", style={'margin': "1vh 1vw"}),
-                        dcc.Input(id="temp-pass-through-min-in", type="number", debounce=True, placeholder="Min", style={'margin': "1vh 1vw"}),
-                        html.Div("Temp", id='temp-temp-out', style={'margin-bottom': "1vh", 'border': "2px solid black", 'padding': "0px 1vw"})
-                    ], style={'display': "flex", 'align-items': 'center','flex-direction': "column", 'border': "2px solid black", 
-                              'margin-bottom': "2vh"}),
+                   html.Div([
+                        html.Div("Pass Through", style={'font-weight': 'bold', 'margin-bottom': '1vh'}),
+                        
+                        # Label and Input for Max
+                        html.Div([
+                            html.Label("Max", style={'margin': '0px 0.5vw'}),
+                            dcc.Input(id="temp-pass-through-max-in", type="number", debounce=True, placeholder="Max",
+                                    style={'margin': "0.5vh 0.5vw", 'width': '6vw'})
+                        ], style={'display': 'flex', 'align-items': 'center', 'margin-bottom': '0.5vh'}),
+
+                        # Label and Input for Min
+                        html.Div([
+                            html.Label("Min", style={'margin': '0px 0.5vw'}),
+                            dcc.Input(id="temp-pass-through-min-in", type="number", debounce=True, placeholder="Min",
+                                    style={'margin': "0.5vh 0.5vw", 'width': '6vw'})
+                        ], style={'display': 'flex', 'align-items': 'center', 'margin-bottom': '0.5vh'}),
+                        
+                        # Output div for Temp
+                        html.Div("Temp", id='temp-temp-out', style={'margin-bottom': "1vh", 'border': "2px solid black", 'padding': "0px 1vw", 'margin-bottom': '0.5vh'})
+                    ], style={'display': "flex", 'align-items': 'center', 'flex-direction': "column", 'border': "2px solid black", 'margin-bottom': "2vh"}),
 
                     html.Div([
-                        html.Div("LN2"),
-                        dcc.Input(id="temp-ln2-object-target-in", type="text", debounce=True, placeholder="Object Target", style={'margin': "1vh 1vw"}),
-                        dcc.Input(id="temp-ln2-ln2-on-time-in", type="number", debounce=True, placeholder="LN2 On Time", style={'margin': "1vh 1vw"}),
-                        dcc.Input(id="temp-ln2-shroud-min-in", type="number", debounce=True, placeholder="Shroud Min", style={'margin': "1vh 1vw"}),
-                        html.Div("Shroud Temp", id='temp-shroud-temp-out', style={'margin-bottom': "1vh", 'border': "2px solid black", 'padding': "0px 1vw"})
-                    ], style={'display': "flex", 'align-items': 'center','flex-direction': "column", 'border': "2px solid black",
-                              'margin-bottom': "1vh"}),
+                        html.Div("LN2", style={'font-weight': 'bold', 'margin-bottom': '1vh'}),  # Main section label
+                        
+                        html.Div([
+                            html.Label("Object Target", style={'margin': '0px 0.5vw'}),
+                            dcc.Input(id="temp-ln2-object-target-in", type="text", debounce=True, placeholder="Object Target",
+                                    style={'margin': "0.5vh", 'width': '6vw'}),
+                        ], style={'display': 'flex', 'align-items': 'center', 'margin-bottom': '0.5vh'}),
+                        
+                        html.Div([
+                            html.Label("LN2 On Time", style={'margin': '0px 0.5vw'}),
+                            dcc.Input(id="temp-ln2-ln2-on-time-in", type="number", debounce=True, placeholder="On Time",
+                                    style={'margin': "0.5vh", 'width': '6vw'}),
+                        ], style={'display': 'flex', 'align-items': 'center', 'margin-bottom': '0.5vh'}),
+                        
+                        html.Div([
+                            html.Label("Shroud Min", style={'margin': '0px 0.5vw'}),
+                            dcc.Input(id="temp-ln2-shroud-min-in", type="number", debounce=True, placeholder="Shroud Min",
+                                    style={'margin': "0.5vh", 'width': '6vw'}),
+                        ], style={'display': 'flex', 'align-items': 'center', 'margin-bottom': '0.5vh'}),
+
+                        html.Div(id='temp-shroud-temp-out', style={'border': "2px solid black", 'padding': "0px 1vw", 'width': '10vw', 'margin-bottom': '0.5vh'}),
+                    ], style={'display': "flex", 'align-items': 'center','flex-direction': "column", 'border': "2px solid black", 'margin-bottom': "1vh"})
                 ], style={'margin-left': "1vw", 'margin-top': "1vh"}),
 
                 html.Div([
                     html.Div([
-                        html.Div("Heater"),
-                        dcc.Input(id="temp-heater-object-target-in", type="text", debounce=True, placeholder="Object Target", style={'margin': "1vh 1vw"}),
-                        dcc.Input(id="temp-heater-over-temp-in", type="number", debounce=True, placeholder="Over Temp", style={'margin': "1vh 1vw"}),
-                        dcc.Input(id="temp-heater-heater-max-in", type="number", debounce=True, placeholder="Heater Max", style={'margin': "1vh 1vw"}),
-                        html.Div("Heater Temp", id='temp-heater-temp-out', style={'margin-bottom': "1vh", 'border': "2px solid black", 'padding': "0px 1vw"})
-                    ], style={'display': "flex", 'align-items': 'center','flex-direction': "column", 'border': "2px solid black", 
-                              'margin-bottom': "2vh"}),
+                        html.Div("Heater", style={'font-weight': 'bold', 'margin-bottom': '1vh'}),  # Main section label
+                        
+                        html.Div([
+                            html.Label("Object Target", style={'margin': '0px 0.5vw'}),
+                            dcc.Input(id="temp-heater-object-target-in", type="text", debounce=True, placeholder="Object Target",
+                                    style={'margin': "0.5vh", 'width': '6vw'}),
+                        ], style={'display': 'flex', 'align-items': 'center', 'margin-bottom': '0.5vh'}),
+                        
+                        html.Div([
+                            html.Label("Over Temp", style={'margin': '0px 0.5vw'}),
+                            dcc.Input(id="temp-heater-over-temp-in", type="number", debounce=True, placeholder="Over Temp",
+                                    style={'margin': "0.5vh", 'width': '6vw'}),
+                        ], style={'display': 'flex', 'align-items': 'center', 'margin-bottom': '0.5vh'}),
+                        
+                        html.Div([
+                            html.Label("Heater Max", style={'margin': '0px 0.5vw'}),
+                            dcc.Input(id="temp-heater-heater-max-in", type="number", debounce=True, placeholder="Heater Max",
+                                    style={'margin': "0.5vh", 'width': '6vw'}),
+                        ], style={'display': 'flex', 'align-items': 'center', 'margin-bottom': '0.5vh'}),
+
+                        html.Div(id='temp-heater-temp-out', style={'border': "2px solid black", 'padding': "0px 1vw", 'width': '10vw', 'margin-bottom': "1vh"}),
+                    
+                    ], style={'display': "flex", 'align-items': 'center','flex-direction': "column", 'border': "2px solid black", 'margin-bottom': "2vh"}),
 
                     html.Div([
                         html.Div("Object Temp", id="temp-object-temp-out", style={'margin': "1vh 1vw", 'border': "2px solid black", 'padding': "0px 1vw"}),
@@ -511,7 +578,7 @@ app.layout = html.Div([
                                                 'border-radius': "30%",
                                                 'margin': "1px"})
                             ],
-                            style={'display': 'flex', 'align-items': 'center', 'margin': '0px'}) for i in range(16)
+                            style={'display': 'flex', 'align-items': 'center', 'margin': '0px'}) for i in range(NUM_TC)
                         ]) 
                     ], style={'padding': '0px 1vw', 'margin-left': "1vw", 'border': "2px solid black", 'background-color': "rgb(39,68,90)"}),
 
@@ -527,7 +594,7 @@ app.layout = html.Div([
                                                 'border-radius': "30%",
                                                 'margin': "1px"})
                             ],
-                            style={'display': 'flex', 'align-items': 'center', 'margin': '0px'}) for i in range(16)
+                            style={'display': 'flex', 'align-items': 'center', 'margin': '0px'}) for i in range(NUM_TC)
                         ]) 
                     ], style={'padding': '0px 1vw', 'border': "2px solid black", 'background-color': "rgb(39,68,90)"}),
 
@@ -543,12 +610,12 @@ app.layout = html.Div([
                                                 'border-radius': "30%",
                                                 'margin': "1px"})
                             ],
-                            style={'display': 'flex', 'align-items': 'center', 'margin': '0px'}) for i in range(16)
+                            style={'display': 'flex', 'align-items': 'center', 'margin': '0px'}) for i in range(NUM_TC)
                         ]) 
                     ], style={'padding': '0px 1vw', 'border': "2px solid black", 'background-color': "rgb(39,68,90)"}),
 
                     html.Div([
-                        html.Div("LN2 TCs", style={'color': "white", "font-size": "2.5vh", 'margin-left': "1vw"}),  
+                        html.Div("Shroud TCs", style={'color': "white", "font-size": "2.5vh", 'margin-left': "1vw"}),  
                         html.Div([
                             html.Div([
                                 html.Div(f"TC{i + 1}", style={'width': '4vw', 'text-align': 'center', 'margin-right': '0.5vw', 'color': "white"}),
@@ -559,7 +626,7 @@ app.layout = html.Div([
                                                 'border-radius': "30%",
                                                 'margin': "1px"})
                             ],
-                            style={'display': 'flex', 'align-items': 'center', 'margin': '0px'}) for i in range(16)
+                            style={'display': 'flex', 'align-items': 'center', 'margin': '0px'}) for i in range(NUM_TC)
                         ]) 
                     ], style={'padding': '0px 1vw', 'margin-right': "1vw", 'border': "2px solid black", 'background-color': "rgb(39,68,90)"}),
 
@@ -650,34 +717,352 @@ def update_estop(n_clicks):
         return
 
 
-# callback function for when shroud temp is changed
-@callback(
-    Input(component_id="shroud-temp-in", component_property='value')
-)
-def update_shroud_temp(temp):
-    # TODO: add functionality for shroud temp change
-    print("Shroud temp changed to ", temp)
-    return
+# # callback function for when shroud temp is changed
+# @callback(
+#     Input(component_id="shroud-temp-in", component_property='value')
+# )
+# def update_shroud_temp(temp):
+#     # TODO: add functionality for shroud temp change
+#     print("Shroud temp changed to ", temp)
+#     return
 
 
-# callback function for when obj temp is changed
-@callback(
-    Input(component_id="obj-temp-in", component_property='value')
-)
-def update_obj_temp(temp):
-    # TODO: add functionality for obj temp change
-    print("Obj temp changed to ", temp)
-    return
+# # callback function for when obj temp is changed
+# @callback(
+#     Input(component_id="obj-temp-in", component_property='value')
+# )
+# def update_obj_temp(temp):
+#     # TODO: add functionality for obj temp change
+#     print("Obj temp changed to ", temp)
+#     return
 
 
-# callback function for when heater temp is changed
-@callback(
-    Input(component_id="heater-temp-in", component_property='value')
-)
-def update_heater_temp(temp):
+# # callback function for when heater temp is changed
+# @callback(
+#     Input(component_id="heater-temp-in", component_property='value')
+# )
+# def update_heater_temp(temp):
     # TODO: add functionality for heater temp change
     print("Heater temp changed to ", temp)
     return
+
+
+# callback function to get average heater TC temp
+@callback(
+    [Output(component_id='temp-heater-temp-out', component_property='children'),
+     Output(component_id='heater-temp-out', component_property='children'),],
+    [Input(component_id='int-comp', component_property='n_intervals'),
+     Input({'type': 'temp-heater-tc-button', 'index': ALL}, 'n_clicks')],
+    State(component_id='tc-data-store', component_property='data')
+)
+def update_average_heater_temp(n_intervals, buttons_n_clicks, store_data):
+    selected_tc_values = [
+        store_data[f'{i+1}'][-1]  # Get the latest value of each selected TC
+        for i in range(NUM_TC)
+        if buttons_n_clicks[i] % 2 == 1
+    ]
+    
+    if selected_tc_values:
+        average_value = sum(selected_tc_values) / len(selected_tc_values)
+    else:
+        average_value = 0
+    
+    return f"Heater Temp: {average_value:.2f}°C", f"Heater Temp: {average_value:.2f}°C"
+
+
+
+# callback function to get average shroud TC temp
+@callback(
+    [Output(component_id='temp-shroud-temp-out', component_property='children'),
+     Output(component_id='shroud-temp-out', component_property='children')],
+    [Input(component_id='int-comp', component_property='n_intervals'),
+     Input({'type': 'temp-ln2-tc-button', 'index': ALL}, 'n_clicks')],
+    State(component_id='tc-data-store', component_property='data')
+)
+def update_average_shroud_temp(n_intervals, buttons_n_clicks, store_data):
+    selected_tc_values = [
+        store_data[f'{i+1}'][-1]  # Get the latest value of each selected TC
+        for i in range(NUM_TC)
+        if buttons_n_clicks[i] % 2 == 1
+    ]
+    
+    if selected_tc_values:
+        average_value = sum(selected_tc_values) / len(selected_tc_values)
+    else:
+        average_value = 0
+    
+    return f"Shroud Temp: {average_value:.2f}°C", f"Shroud Temp: {average_value:.2f}°C"
+
+
+# callback function to output max for heater
+@callback(
+    Output(component_id='heater-max-out', component_property='style'),
+    [Input(component_id='int-comp', component_property='n_intervals'),
+     Input(component_id='temp-heater-heater-max-in', component_property='value')],
+    [State({'type': 'temp-heater-tc-button', 'index': ALL}, 'n_clicks'),
+    State(component_id='tc-data-store', component_property='data')]
+)
+def update_heater_max(n_intervals, maximum, buttons_n_clicks, store_data):
+    selected_tc_values = [
+        store_data[f'{i+1}'][-1]  # Get the latest value of each selected TC
+        for i in range(NUM_TC)
+        if buttons_n_clicks[i] % 2 == 1
+    ]
+    
+    if selected_tc_values:
+        max_value = max(selected_tc_values)
+    else:
+        max_value = -1
+
+    if (type(maximum) != type(None) and max_value >= float(maximum)):
+        return {'background-color': "green", 'height': "6.5vh", 'width': "6.5vh", 'border-radius': "100%", 'border': '2px solid black', 'background-color': 'rgb(55,140,77)', 'box-shadow': '0px 0px 3px 3px rgb(62,200,87)'}
+    else:
+        return {'background-color': "grey", 'height': "6.5vh", 'width': "6.5vh", 'border-radius': "100%", 'border': '2px solid black'}
+    
+
+
+# callback function to output shroud lim
+@callback(
+    Output(component_id='ln2-shroud-lim-out', component_property='style'),
+    [Input(component_id='int-comp', component_property='n_intervals'),
+     Input(component_id='temp-ln2-shroud-min-in', component_property='value')],
+    [State({'type': 'temp-ln2-tc-button', 'index': ALL}, 'n_clicks'),
+    State(component_id='tc-data-store', component_property='data')]
+)
+def update_shroud_lim(n_intervals, minimum, buttons_n_clicks, store_data):
+    selected_tc_values = [
+        store_data[f'{i+1}'][-1]  # Get the latest value of each selected TC
+        for i in range(NUM_TC)
+        if buttons_n_clicks[i] % 2 == 1
+    ]
+    
+    if selected_tc_values:
+        min_value = min(selected_tc_values)
+    else:
+        min_value = 20000
+
+    if (type(minimum) != type(None) and min_value <= float(minimum)):
+        return {'background-color': "green", 'height': "6.5vh", 'width': "6.5vh", 'border-radius': "100%", 'border': '2px solid black', 'background-color': 'rgb(55,140,77)', 'box-shadow': '0px 0px 3px 3px rgb(62,200,87)'}
+    else:
+        return {'background-color': "grey", 'height': "6.5vh", 'width': "6.5vh", 'border-radius': "100%", 'border': '2px solid black'}
+    
+
+
+
+# callback function to output over temp for heater
+@callback(
+    Output(component_id='heater-over-temp-out', component_property='style'),
+    [Input(component_id='int-comp', component_property='n_intervals'),
+     Input(component_id='temp-heater-over-temp-in', component_property='value')],
+    [State({'type': 'temp-over-temp-tc-button', 'index': ALL}, 'n_clicks'),
+    State(component_id='tc-data-store', component_property='data')]
+)
+def update_heater_over_temp(n_intervals, maximum, buttons_n_clicks, store_data):
+    selected_tc_values = [
+        store_data[f'{i+1}'][-1]  # Get the latest value of each selected TC
+        for i in range(NUM_TC)
+        if buttons_n_clicks[i] % 2 == 1
+    ]
+    
+    if selected_tc_values:
+        max_value = max(selected_tc_values)
+    else:
+        max_value = -1
+
+    if (type(maximum) != type(None) and max_value >= float(maximum)):
+        return {'background-color': "green", 'height': "6.5vh", 'width': "6.5vh", 'border-radius': "100%", 'border': '2px solid black', 'background-color': 'rgb(55,140,77)', 'box-shadow': '0px 0px 3px 3px rgb(62,200,87)'}
+    else:
+        return {'background-color': "grey", 'height': "6.5vh", 'width': "6.5vh", 'border-radius': "100%", 'border': '2px solid black'}
+    
+
+
+
+# callback function to update deltas
+@callback(
+    [Output(component_id='temp-del-hot-out', component_property='children'),
+     Output(component_id='temp-del-cold-out', component_property='children')],
+     [Input(component_id='int-comp', component_property='n_intervals'),
+     Input(component_id='temp-heater-temp-out', component_property='children'),
+     Input(component_id='temp-shroud-temp-out', component_property='children'),
+     Input(component_id='temp-object-temp-out', component_property='children')]
+)
+def update_delta_temps(n_intervals, heater_temp, shroud_temp, object_temp):
+    if type(heater_temp) != type(None) and type(shroud_temp) != type(None) and type(object_temp) != type(None):
+        heater_temp_value = float(heater_temp.split("Heater Temp: ")[1].split("°C")[0])
+        shroud_temp_value = float(shroud_temp.split("Shroud Temp: ")[1].split("°C")[0])
+        object_temp_value = float(object_temp.split("Object Temp: ")[1].split("°C")[0])
+
+        delta_hot = heater_temp_value - object_temp_value
+        delta_cold = object_temp_value - shroud_temp_value
+
+        return f"Delta to Hot: {delta_hot:.2f}°C", f"Delta to Cold: {delta_cold:.2f}°C"
+    else:
+        return "", ""
+
+
+
+# callback function to output @ target for heater
+@callback(
+    [Output(component_id='heater-@-target-out', component_property='style'),
+     Output(component_id='temp-object-temp-out', component_property='children'),
+     Output(component_id='obj-temp-out', component_property='children')],
+    [Input(component_id='int-comp', component_property='n_intervals'),
+     Input({'type': 'temp-obj-tc-button', 'index': ALL}, 'n_clicks'),
+     Input(component_id='temp-heater-object-target-in', component_property='value'),],
+    State(component_id='tc-data-store', component_property='data')
+)
+def update_heater_at_target(n_intervals, buttons_n_clicks, object_target, store_data):
+    selected_tc_values = [
+        store_data[f'{i+1}'][-1]  # Get the latest value of each selected TC
+        for i in range(NUM_TC)
+        if buttons_n_clicks[i] % 2 == 1
+    ]
+    
+    if selected_tc_values:
+        average_value = sum(selected_tc_values) / len(selected_tc_values)
+    else:
+        average_value = 0
+
+    if type(object_target) != type(None) and average_value >= float(object_target):
+        return {'background-color': "green", 'height': "6.5vh", 'width': "6.5vh", 'border-radius': "100%", 'border': '2px solid black', 
+                'background-color': 'rgb(55,140,77)', 'box-shadow': '0px 0px 3px 3px rgb(62,200,87)'}, f"Object Temp: {average_value:.2f}°C", f"Object Temp: {average_value:.2f}°C"
+    else:
+        return {'background-color': "grey", 'height': "6.5vh", 'width': "6.5vh", 'border-radius': "100%", 'border': '2px solid black'}, f"Object Temp: {average_value:.2f}°C", f"Object Temp: {average_value:.2f}°C"
+
+
+# callback function to output @ target for heater
+@callback(
+    Output(component_id='ln2-@-target-out', component_property='style'),
+    [Input(component_id='int-comp', component_property='n_intervals'),
+     Input({'type': 'temp-ln2-tc-button', 'index': ALL}, 'n_clicks'),
+     Input(component_id='temp-ln2-object-target-in', component_property='value'),],
+    State(component_id='tc-data-store', component_property='data')
+)
+def update_ln2_at_target(n_intervals, buttons_n_clicks, object_target, store_data):
+    selected_tc_values = [
+        store_data[f'{i+1}'][-1]  # Get the latest value of each selected TC
+        for i in range(NUM_TC)
+        if buttons_n_clicks[i] % 2 == 1
+    ]
+    
+    if selected_tc_values:
+        average_value = sum(selected_tc_values) / len(selected_tc_values)
+    else:
+        average_value = 0
+
+    if type(object_target) != type(None) and average_value >= float(object_target):
+        return {'background-color': "green", 'height': "6.5vh", 'width': "6.5vh", 'border-radius': "100%", 'border': '2px solid black', 
+                'background-color': 'rgb(55,140,77)', 'box-shadow': '0px 0px 3px 3px rgb(62,200,87)'}
+    else:
+        return {'background-color': "grey", 'height': "6.5vh", 'width': "6.5vh", 'border-radius': "100%", 'border': '2px solid black'}
+
+
+
+# callback to save TC locations to file
+@callback(
+    [Input(f'location-{i+1}-in', 'value') for i in range(NUM_TC)], 
+    prevent_initial_call=True
+)
+def save_tc_location(*values):
+    # Create a dictionary with the TC number and corresponding location
+    data = {'TC': [i+1 for i in range(NUM_TC)], 'Location': values}
+    
+    # Convert to DataFrame
+    df = pd.DataFrame(data)
+    
+    # Define the file path for the CSV
+    file_path = 'thermocouples_locations.csv'
+    
+    # Write the DataFrame to a CSV file
+    df.to_csv(file_path, index=False)
+
+    return
+
+# callback function to save store to file
+# @callback(
+#     Input(component_id='int-comp', component_property='n_intervals'),
+#     State(component_id='tc-data-store', component_property='data')
+# )
+# def save_store_data(n_intervals, store_data):
+#     if n_intervals % 5 == 0:
+#     # Save the store data to a JSON file every 5 seconds for now
+#         file_path = 'thermocouple_data.json' # need to update to file path/location in log tab
+#         with open(file_path, 'w') as file:
+#             json.dump(store_data, file, indent=4)
+#     return
+
+
+# callback function to update TC data displayed
+@callback(
+    [Output(f'tc{i+1}-out', 'children') for i in range(NUM_TC)],
+    Input(component_id="int-comp", component_property='n_intervals'), 
+    State('tc-data-store', 'data') 
+)
+def update_tc_data_out(n_intervals, store_data):
+    return [
+        f"{store_data[f'{i+1}'][-1]:.2f}" if store_data[f'{i+1}'] else "" 
+        for i in range(NUM_TC)
+    ]
+    
+
+# callback function to update store with new TC data
+@callback(
+    Output(component_id='tc-data-store', component_property='data'),
+    Input(component_id="int-comp", component_property='n_intervals'),
+    State(component_id='tc-data-store', component_property='data')
+)
+def update_data_store(n_intervals, data):
+    # Update time values
+    new_time = (data['time'][-1] + 1) if data['time'] else 0
+
+    # Update the store with the new time value
+    data['time'].append(new_time)
+
+    # Simulate new data for all TCs
+    for tc in data:
+        if tc != 'time':  # Skip the 'time' key
+            new_value = random.uniform(18, 25)  # Simulate new random data
+            data[tc].append(new_value)
+    
+    return data
+
+
+# callback function to update graph every second
+@callback(
+        Output(component_id='status-plot', component_property='figure'),
+        [Input(component_id='tc-select-panel', component_property='value'),
+         Input(component_id="int-comp", component_property='n_intervals')],
+        State(component_id='tc-data-store', component_property='data')
+)
+def update_graph(selected_tcs, n_intervals, store_data):
+    # Ensure selected_tcs is not None; if None, assign an empty list
+    if selected_tcs is None:
+        selected_tcs = []
+       
+    # Create traces for only the selected TCs
+    traces = []
+    for tc in selected_tcs:
+        color = tc_colors[int(tc)-1]
+        last_values = list(store_data[tc][-MAX_LEN:])
+        last_time = list(store_data['time'])[-MAX_LEN:]
+        traces.append(go.Scatter(
+            x=last_time,  # Use the time axis for all
+            y=last_values,
+            mode='lines+markers',
+            name=tc,
+            line=dict(color=color),
+        ))
+    
+    # Create the figure for the graph
+    fig = go.Figure(
+        data=traces,
+        layout=go.Layout(
+            xaxis=dict(title="Time (s)"),
+            yaxis=dict(title="Temperature (°C)"),
+            margin=dict(l=40, r=40, t=40, b=40)
+        )
+    )
+    return fig
 
 
 # Callback to capture the selected checklist options
@@ -689,173 +1074,99 @@ def update_tc_select(selected_values):
     return 
 
 
-# callback function for when H1 override toggle button is pressed
+# callback function for H1 override buttons
 @callback(
-    Output(component_id='btn-h1-override-toggle', component_property='style'),
-    Input(component_id='btn-h1-override-toggle', component_property='n_clicks'),
-    prevent_initial_call=True
+        [Output(component_id='btn-h1-override-on-off', component_property='disabled'),
+         Output(component_id='btn-h1-override-on-off', component_property='style'),
+         Output(component_id='btn-h1-override-toggle', component_property='style'),
+         Output(component_id='btn-h1-override-on-off', component_property='n_clicks')],
+        [Input(component_id='btn-h1-override-toggle', component_property='n_clicks'),
+         Input(component_id='btn-h1-override-on-off', component_property='n_clicks')],
+        [State(component_id='btn-h1-override-on-off', component_property='disabled')]
 )
-def update_h1_override_toggle_btn(n_clicks):
-    if "btn-h1-override-toggle" == ctx.triggered_id:
-        # TODO: add functionality for h1 override toggle button
-        print("The H1 override toggle button has been clicked")
-        
-        if n_clicks % 2 == 1:
-            # button is on
-            return {'background-color': "green",
-                    'height': "10vh",
-                    'width': "10vh",
-                    'border-radius': "100%",
-                    'border': '2px solid black',
-                    'background-color': 'rgb(55,140,77)',
-                    'box-shadow': '0px 0px 3px 3px rgb(62,200,87)'}
+def h1_override_control(toggle_n_clicks, on_off_n_clicks, disabled):
+    if toggle_n_clicks % 2 == 1:
+        if disabled:
+            return False, {'background-color': "grey", 'height': "10vh", 'width': "10vh", 'border-radius': "100%", 'border': '2px solid black'}, {'background-color': "green", 'height': "10vh", 'width': "10vh", 'border-radius': "100%",
+                                'border': '2px solid black', 'background-color': 'rgb(55,140,77)', 'box-shadow': '0px 0px 3px 3px rgb(62,200,87)'}, on_off_n_clicks
         else:
-            return {'background-color': "grey",
-                    'height': "10vh",
-                    'width': "10vh",
-                    'border-radius': "100%",
-                    'border': '2px solid black'}
+            if on_off_n_clicks % 2 == 1:
+                return False, {'background-color': "green", 'height': "10vh", 'width': "10vh", 'border-radius': "100%",
+                                'border': '2px solid black', 'background-color': 'rgb(55,140,77)', 'box-shadow': '0px 0px 3px 3px rgb(62,200,87)'}, {'background-color': "green", 'height': "10vh", 'width': "10vh", 'border-radius': "100%",
+                                                                                                                                                    'border': '2px solid black', 'background-color': 'rgb(55,140,77)', 'box-shadow': '0px 0px 3px 3px rgb(62,200,87)'}, on_off_n_clicks
+            else:
+                return False, {'background-color': "grey", 'height': "10vh", 'width': "10vh", 'border-radius': "100%", 'border': '2px solid black'}, {'background-color': "green", 'height': "10vh", 'width': "10vh", 'border-radius': "100%",
+                                                                                                                                                        'border': '2px solid black', 'background-color': 'rgb(55,140,77)', 'box-shadow': '0px 0px 3px 3px rgb(62,200,87)'}, on_off_n_clicks
+    else:
+        if on_off_n_clicks % 2 == 1:
+            return True, {'background-color': "grey", 'height': "10vh", 'width': "10vh", 'border-radius': "100%", 'border': '2px solid black'}, {'background-color': "grey", 'height': "10vh", 'width': "10vh", 'border-radius': "100%", 'border': '2px solid black'}, on_off_n_clicks-1
+        else:
+            return True, {'background-color': "grey", 'height': "10vh", 'width': "10vh", 'border-radius': "100%", 'border': '2px solid black'}, {'background-color': "grey", 'height': "10vh", 'width': "10vh", 'border-radius': "100%", 'border': '2px solid black'}, on_off_n_clicks
 
-
-# Callback function for when H1 override on/off button is pressed
+        
+# callback function for heater override buttons
 @callback(
-    Output(component_id='btn-h1-override-on-off', component_property='style'),
-    Input(component_id='btn-h1-override-on-off', component_property='n_clicks'),
-    prevent_initial_call=True
+        [Output(component_id='btn-heater-override-on-off', component_property='disabled'),
+         Output(component_id='btn-heater-override-on-off', component_property='style'),
+         Output(component_id='btn-heater-override-toggle', component_property='style'),
+         Output(component_id='btn-heater-override-on-off', component_property='n_clicks'),
+         Output(component_id='heater-override-out', component_property='style')],
+        [Input(component_id='btn-heater-override-toggle', component_property='n_clicks'),
+         Input(component_id='btn-heater-override-on-off', component_property='n_clicks')],
+        [State(component_id='btn-heater-override-on-off', component_property='disabled')]
 )
-def update_h1_override_on_off_btn(n_clicks):
-    if "btn-h1-override-on-off" == ctx.triggered_id:
-        # TODO: add functionality for H1 override on/off button
-        print("The H1 override on/off button has been clicked")
-        
-        if n_clicks % 2 == 1:
-            # button is on
-            return {'background-color': "green",
-                    'height': "10vh",
-                    'width': "10vh",
-                    'border-radius': "100%",
-                    'border': '2px solid black',
-                    'background-color': 'rgb(55,140,77)',
-                    'box-shadow': '0px 0px 3px 3px rgb(62,200,87)'}
+def heater_override_control(toggle_n_clicks, on_off_n_clicks, disabled):
+    if toggle_n_clicks % 2 == 1:
+        if disabled:
+            return False, {'background-color': "grey", 'height': "10vh", 'width': "10vh", 'border-radius': "100%", 'border': '2px solid black'}, {'background-color': "green", 'height': "10vh", 'width': "10vh", 'border-radius': "100%",
+                                'border': '2px solid black', 'background-color': 'rgb(55,140,77)', 'box-shadow': '0px 0px 3px 3px rgb(62,200,87)'}, on_off_n_clicks, {'background-color': "grey", 'height': "6.5vh", 'width': "6.5vh", 'border-radius': "100%", 'border': '2px solid black'}
         else:
-            return {'background-color': "grey",
-                    'height': "10vh",
-                    'width': "10vh",
-                    'border-radius': "100%",
-                    'border': '2px solid black'}
-        
+            if on_off_n_clicks % 2 == 1:
+                return False, {'background-color': "green", 'height': "10vh", 'width': "10vh", 'border-radius': "100%",
+                                'border': '2px solid black', 'background-color': 'rgb(55,140,77)', 'box-shadow': '0px 0px 3px 3px rgb(62,200,87)'}, {'background-color': "green", 'height': "10vh", 'width': "10vh", 'border-radius': "100%",
+                                                                                                                                                    'border': '2px solid black', 'background-color': 'rgb(55,140,77)', 'box-shadow': '0px 0px 3px 3px rgb(62,200,87)'}, on_off_n_clicks, {'background-color': "green", 'height': "6.5vh", 'width': "6.5vh", 'border-radius': "100%",
+                                                                                                                                                                                                                                                                                        'border': '2px solid black', 'background-color': 'rgb(55,140,77)', 'box-shadow': '0px 0px 3px 3px rgb(62,200,87)'}
+            else:
+                return False, {'background-color': "grey", 'height': "10vh", 'width': "10vh", 'border-radius': "100%", 'border': '2px solid black'}, {'background-color': "green", 'height': "10vh", 'width': "10vh", 'border-radius': "100%",
+                                                                                                                                                        'border': '2px solid black', 'background-color': 'rgb(55,140,77)', 'box-shadow': '0px 0px 3px 3px rgb(62,200,87)'}, on_off_n_clicks, {'background-color': "grey", 'height': "6.5vh", 'width': "6.5vh", 'border-radius': "100%", 'border': '2px solid black'}
+    else:
+        if on_off_n_clicks % 2 == 1:
+            return True, {'background-color': "grey", 'height': "10vh", 'width': "10vh", 'border-radius': "100%", 'border': '2px solid black'}, {'background-color': "grey", 'height': "10vh", 'width': "10vh", 'border-radius': "100%", 'border': '2px solid black'}, on_off_n_clicks-1, {'background-color': "grey", 'height': "6.5vh", 'width': "6.5vh", 'border-radius': "100%", 'border': '2px solid black'}
+        else:
+            return True, {'background-color': "grey", 'height': "10vh", 'width': "10vh", 'border-radius': "100%", 'border': '2px solid black'}, {'background-color': "grey", 'height': "10vh", 'width': "10vh", 'border-radius': "100%", 'border': '2px solid black'}, on_off_n_clicks, {'background-color': "grey", 'height': "6.5vh", 'width': "6.5vh", 'border-radius': "100%", 'border': '2px solid black'}
 
-# Callback function for when Heater override toggle button is pressed
+
+# callback function for LN2 override buttons
 @callback(
-    Output(component_id='btn-heater-override-toggle', component_property='style'),
-    Input(component_id='btn-heater-override-toggle', component_property='n_clicks'),
-    prevent_initial_call=True
+        [Output(component_id='btn-ln2-override-on-off', component_property='disabled'),
+         Output(component_id='btn-ln2-override-on-off', component_property='style'),
+         Output(component_id='btn-ln2-override-toggle', component_property='style'),
+         Output(component_id='btn-ln2-override-on-off', component_property='n_clicks'),
+         Output(component_id='ln2-override-out', component_property='style')],
+        [Input(component_id='btn-ln2-override-toggle', component_property='n_clicks'),
+         Input(component_id='btn-ln2-override-on-off', component_property='n_clicks')],
+        [State(component_id='btn-ln2-override-on-off', component_property='disabled')]
 )
-def update_heater_override_toggle_btn(n_clicks):
-    if "btn-heater-override-toggle" == ctx.triggered_id:
-        # TODO: add functionality for Heater override toggle button
-        print("The Heater override toggle button has been clicked")
-        
-        if n_clicks % 2 == 1:
-            # button is on
-            return {'background-color': "green",
-                    'height': "10vh",
-                    'width': "10vh",
-                    'border-radius': "100%",
-                    'border': '2px solid black',
-                    'background-color': 'rgb(55,140,77)',
-                    'box-shadow': '0px 0px 3px 3px rgb(62,200,87)'}
+def ln2_override_control(toggle_n_clicks, on_off_n_clicks, disabled):
+    if toggle_n_clicks % 2 == 1:
+        if disabled:
+            return False, {'background-color': "grey", 'height': "10vh", 'width': "10vh", 'border-radius': "100%", 'border': '2px solid black'}, {'background-color': "green", 'height': "10vh", 'width': "10vh", 'border-radius': "100%",
+                                'border': '2px solid black', 'background-color': 'rgb(55,140,77)', 'box-shadow': '0px 0px 3px 3px rgb(62,200,87)'}, on_off_n_clicks, {'background-color': "grey", 'height': "6.5vh", 'width': "6.5vh", 'border-radius': "100%", 'border': '2px solid black'}
         else:
-            return {'background-color': "grey",
-                    'height': "10vh",
-                    'width': "10vh",
-                    'border-radius': "100%",
-                    'border': '2px solid black'}
-        
-
-# Callback function for when Heater override on/off button is pressed
-@callback(
-    Output(component_id='btn-heater-override-on-off', component_property='style'),
-    Input(component_id='btn-heater-override-on-off', component_property='n_clicks'),
-    prevent_initial_call=True
-)
-def update_heater_override_on_off_btn(n_clicks):
-    if "btn-heater-override-on-off" == ctx.triggered_id:
-        # TODO: add functionality for Heater override on/off button
-        print("The Heater override on/off button has been clicked")
-        
-        if n_clicks % 2 == 1:
-            # button is on
-            return {'background-color': "green",
-                    'height': "10vh",
-                    'width': "10vh",
-                    'border-radius': "100%",
-                    'border': '2px solid black',
-                    'background-color': 'rgb(55,140,77)',
-                    'box-shadow': '0px 0px 3px 3px rgb(62,200,87)'}
+            if on_off_n_clicks % 2 == 1:
+                return False, {'background-color': "green", 'height': "10vh", 'width': "10vh", 'border-radius': "100%",
+                                'border': '2px solid black', 'background-color': 'rgb(55,140,77)', 'box-shadow': '0px 0px 3px 3px rgb(62,200,87)'}, {'background-color': "green", 'height': "10vh", 'width': "10vh", 'border-radius': "100%",
+                                                                                                                                                    'border': '2px solid black', 'background-color': 'rgb(55,140,77)', 'box-shadow': '0px 0px 3px 3px rgb(62,200,87)'}, on_off_n_clicks, {'background-color': "green", 'height': "6.5vh", 'width': "6.5vh", 'border-radius': "100%",
+                                                                                                                                                                                                                                                                                        'border': '2px solid black', 'background-color': 'rgb(55,140,77)', 'box-shadow': '0px 0px 3px 3px rgb(62,200,87)'}
+            else:
+                return False, {'background-color': "grey", 'height': "10vh", 'width': "10vh", 'border-radius': "100%", 'border': '2px solid black'}, {'background-color': "green", 'height': "10vh", 'width': "10vh", 'border-radius': "100%",
+                                                                                                                                                        'border': '2px solid black', 'background-color': 'rgb(55,140,77)', 'box-shadow': '0px 0px 3px 3px rgb(62,200,87)'}, on_off_n_clicks, {'background-color': "grey", 'height': "6.5vh", 'width': "6.5vh", 'border-radius': "100%", 'border': '2px solid black'}
+    else:
+        if on_off_n_clicks % 2 == 1:
+            return True, {'background-color': "grey", 'height': "10vh", 'width': "10vh", 'border-radius': "100%", 'border': '2px solid black'}, {'background-color': "grey", 'height': "10vh", 'width': "10vh", 'border-radius': "100%", 'border': '2px solid black'}, on_off_n_clicks-1, {'background-color': "grey", 'height': "6.5vh", 'width': "6.5vh", 'border-radius': "100%", 'border': '2px solid black'}
         else:
-            return {'background-color': "grey",
-                    'height': "10vh",
-                    'width': "10vh",
-                    'border-radius': "100%",
-                    'border': '2px solid black'}
+            return True, {'background-color': "grey", 'height': "10vh", 'width': "10vh", 'border-radius': "100%", 'border': '2px solid black'}, {'background-color': "grey", 'height': "10vh", 'width': "10vh", 'border-radius': "100%", 'border': '2px solid black'}, on_off_n_clicks, {'background-color': "grey", 'height': "6.5vh", 'width': "6.5vh", 'border-radius': "100%", 'border': '2px solid black'}
 
-
-# Callback function for when LN2 override toggle button is pressed
-@callback(
-    Output(component_id='btn-ln2-override-toggle', component_property='style'),
-    Input(component_id='btn-ln2-override-toggle', component_property='n_clicks'),
-    prevent_initial_call=True
-)
-def update_ln2_override_toggle_btn(n_clicks):
-    if "btn-ln2-override-toggle" == ctx.triggered_id:
-        # TODO: add functionality for LN2 override toggle button
-        print("The LN2 override toggle button has been clicked")
-        
-        if n_clicks % 2 == 1:
-            # button is on
-            return {'background-color': "green",
-                    'height': "10vh",
-                    'width': "10vh",
-                    'border-radius': "100%",
-                    'border': '2px solid black',
-                    'background-color': 'rgb(55,140,77)',
-                    'box-shadow': '0px 0px 3px 3px rgb(62,200,87)'}
-        else:
-            return {'background-color': "grey",
-                    'height': "10vh",
-                    'width': "10vh",
-                    'border-radius': "100%",
-                    'border': '2px solid black'}
-        
-
-# Callback function for when LN2 override on/off button is pressed
-@callback(
-    Output(component_id='btn-ln2-override-on-off', component_property='style'),
-    Input(component_id='btn-ln2-override-on-off', component_property='n_clicks'),
-    prevent_initial_call=True
-)
-def update_ln2_override_on_off_btn(n_clicks):
-    if "btn-ln2-override-on-off" == ctx.triggered_id:
-        # TODO: add functionality for LN2 override on/off button
-        print("The LN2 override on/off button has been clicked")
-        
-        if n_clicks % 2 == 1:
-            # button is on
-            return {'background-color': "green",
-                    'height': "10vh",
-                    'width': "10vh",
-                    'border-radius': "100%",
-                    'border': '2px solid black',
-                    'background-color': 'rgb(55,140,77)',
-                    'box-shadow': '0px 0px 3px 3px rgb(62,200,87)'}
-        else:
-            return {'background-color': "grey",
-                    'height': "10vh",
-                    'width': "10vh",
-                    'border-radius': "100%",
-                    'border': '2px solid black'}
-        
 
 # callback function for when pass through max is changed
 @callback(
@@ -951,6 +1262,7 @@ def update_temp_object_tc_btn(n_clicks, id):
                 'border-radius': "30%",
                 'margin': "1px"}
     
+
 
 # Callback to handle temp heater TC button clicks
 @callback(
