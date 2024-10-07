@@ -3,27 +3,28 @@
 
 
 from dash import Dash, dcc, html, Input, Output, ctx, callback, MATCH, State, ALL
-import plotly.express as px
-import pandas as pd
+# import plotly.express as px
+# import pandas as pd
 from collections import deque
 import random
 import plotly.graph_objs as go
 import json
 import os
-# import RPi.GPIO as GPIO
+import RPi.GPIO as GPIO
 import time
+from max31855.max31855 import MAX31855, MAX31855Error
 
 
 app = Dash(__name__)
 
-df = pd.read_csv('https://gist.githubusercontent.com/chriddyp/5d1ea79569ed194d432e56108a04d188/raw/a9f9e8076b837d541398e999dcbac2b2826a81f8/gdp-life-exp-2007.csv')
+# df = pd.read_csv('https://gist.githubusercontent.com/chriddyp/5d1ea79569ed194d432e56108a04d188/raw/a9f9e8076b837d541398e999dcbac2b2826a81f8/gdp-life-exp-2007.csv')
 
-fig = px.scatter(df, x="gdp per capita", y="life expectancy",
-                 size="population", color="continent", hover_name="country",
-                 log_x=True, size_max=60)
+# fig = px.scatter(df, x="gdp per capita", y="life expectancy",
+#                  size="population", color="continent", hover_name="country",
+#                  log_x=True, size_max=60)
 
-df = px.data.iris()  # iris is a pandas DataFrame
-fig = px.scatter(df, x="sepal_width", y="sepal_length")
+# df = px.data.iris()  # iris is a pandas DataFrame
+# fig = px.scatter(df, x="sepal_width", y="sepal_length")
 
 # create CSS file that will make it look better
 
@@ -53,11 +54,13 @@ CS = 24
 SO = 22
 SCK = 23
 
+thermocouple = MAX31855(CS, SCK, SO)
+
 # GPIO.setmode(GPIO.BOARD)
-# GPIO.setup(A3, GPIO.OUT)
-# GPIO.setup(A2, GPIO.OUT)
-# GPIO.setup(A1, GPIO.OUT)
-# GPIO.setup(A0, GPIO.OUT)
+GPIO.setup(A3, GPIO.OUT)
+GPIO.setup(A2, GPIO.OUT)
+GPIO.setup(A1, GPIO.OUT)
+GPIO.setup(A0, GPIO.OUT)
 
 # GPIO.setup(CS, GPIO.OUT)
 # GPIO.setup(SO, GPIO.OUT)
@@ -267,7 +270,7 @@ app.layout = html.Div([
 
             # status tab
             html.Div([
-                dcc.Graph(id='status-plot', figure=fig, style={'border': "2px solid black", 'width': '37vw', 'margin-right': "1vw", 'height': "55vh"}, 
+                dcc.Graph(id='status-plot', style={'border': "2px solid black", 'width': '37vw', 'margin-right': "1vw", 'height': "55vh"}, 
                           config={'displayModeBar': False}),
                 dcc.Checklist(
                     id="tc-select-panel",
@@ -1082,7 +1085,8 @@ def update_data_store(n_intervals, data, ln2_obj_target, h2_obj_target, shroud_m
     # Simulate new data for all TCs
     for tc in data:
         if tc.isnumeric():  # Skip the 'time' key
-            new_value = random.uniform(18, 25)  # Simulate new random data
+            # new_value = random.uniform(18, 25)  # Simulate new random data
+            new_value = read_tc(int(tc))
             data[tc].append(new_value)
 
     
@@ -1189,66 +1193,67 @@ def update_data_store(n_intervals, data, ln2_obj_target, h2_obj_target, shroud_m
 
 
 
-# # function to control reading from TC
-# def read_tc(tc_num):
-#     # output to read TC value from TC #tc_num
-#     if tc_num < 0 or tc_num > NUM_TC-1:
-#         print("Invalid select")
-#         return
+# function to control reading from TC
+def read_tc(tc_num):
+    # output to read TC value from TC #tc_num
+    if tc_num < 0 or tc_num > NUM_TC-1:
+        print("Invalid select")
+        return
     
-#     s0 = tc_num & 0x01  # Least significant bit (S0)
-#     s1 = (tc_num >> 1) & 0x01  # Second bit (S1)
-#     s2 = (tc_num >> 2) & 0x01  # Third bit (S2)
-#     s3 = (tc_num >> 3) & 0x01  # Most significant bit (S3)
+    s0 = tc_num & 0x01  # Least significant bit (S0)
+    s1 = (tc_num >> 1) & 0x01  # Second bit (S1)
+    s2 = (tc_num >> 2) & 0x01  # Third bit (S2)
+    s3 = (tc_num >> 3) & 0x01  # Most significant bit (S3)
     
-#     # Set the select lines to choose the tc_num
-#     GPIO.output(A0, s0)
-#     GPIO.output(A1, s1)
-#     GPIO.output(A2, s2)
-#     GPIO.output(A3, s3)
+    # Set the select lines to choose the tc_num
+    GPIO.output(A0, s0)
+    GPIO.output(A1, s1)
+    GPIO.output(A2, s2)
+    GPIO.output(A3, s3)
     
-#     print(f"tc_num {tc_num} selected (S3={s3}, S2={s2}, S1={s1}, S0={s0}).")
+    print(f"tc_num {tc_num} selected (S3={s3}, S2={s2}, S1={s1}, S0={s0}).")
 
-#     # read information from TC
-#     # Start communication by pulling CS low
-#     GPIO.output(CS, GPIO.LOW)
+    # read information from TC
+    thermocouple_temp_c = thermocouple.get()
+    # # Start communication by pulling CS low
+    # GPIO.output(CS, GPIO.LOW)
     
-#     # Read 32 bits from the MAX31855
-#     raw_value = 0
-#     for i in range(32):
-#         # Clock high to low (data is valid on falling edge)
-#         GPIO.output(SCK, GPIO.HIGH)
-#         time.sleep(0.00001)  # Short delay
+    # # Read 32 bits from the MAX31855
+    # raw_value = 0
+    # for i in range(32):
+    #     # Clock high to low (data is valid on falling edge)
+    #     GPIO.output(SCK, GPIO.HIGH)
+    #     time.sleep(0.00001)  # Short delay
         
-#         # Read the bit from the DO pin
-#         bit = GPIO.input(SO)
-#         raw_value = (raw_value << 1) | bit
+    #     # Read the bit from the DO pin
+    #     bit = GPIO.input(SO)
+    #     raw_value = (raw_value << 1) | bit
         
-#         # Clock low again
-#         GPIO.output(SCK, GPIO.LOW)
-#         time.sleep(0.00001)
+    #     # Clock low again
+    #     GPIO.output(SCK, GPIO.LOW)
+    #     time.sleep(0.00001)
     
-#     # End communication by setting CS high
-#     GPIO.output(CS, GPIO.HIGH)
+    # # End communication by setting CS high
+    # GPIO.output(CS, GPIO.HIGH)
 
 
-#     # Check if the thermocouple is open (D16 bit)
-#     if raw_value & 0x00010000:
-#         raise Exception("Thermocouple is not connected")
+    # # Check if the thermocouple is open (D16 bit)
+    # if raw_value & 0x00010000:
+    #     raise Exception("Thermocouple is not connected")
     
-#     # Extract the thermocouple temperature (bits 31-18, signed 14-bit value)
-#     thermocouple_temp = (raw_value >> 18) & 0x3FFF
+    # # Extract the thermocouple temperature (bits 31-18, signed 14-bit value)
+    # thermocouple_temp = (raw_value >> 18) & 0x3FFF
     
-#     # If the temperature is negative, adjust the signed value
-#     if thermocouple_temp & 0x2000:  # Sign bit check
-#         thermocouple_temp -= 0x4000  # Convert to negative value
+    # # If the temperature is negative, adjust the signed value
+    # if thermocouple_temp & 0x2000:  # Sign bit check
+    #     thermocouple_temp -= 0x4000  # Convert to negative value
     
-#     # Convert to Celsius (LSB = 0.25°C)
-#     thermocouple_temp_c = thermocouple_temp * 0.25
+    # # Convert to Celsius (LSB = 0.25°C)
+    # thermocouple_temp_c = thermocouple_temp * 0.25
 
 
-#     GPIO.cleanup()
-#     return thermocouple_temp_c
+    # GPIO.cleanup()
+    return thermocouple_temp_c
 
 
 
