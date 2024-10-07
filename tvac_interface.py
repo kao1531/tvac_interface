@@ -10,6 +10,8 @@ import random
 import plotly.graph_objs as go
 import json
 import os
+# import RPi.GPIO as GPIO
+import time
 
 
 app = Dash(__name__)
@@ -37,12 +39,45 @@ MAX_LEN = 20
 # number of thermocouples
 NUM_TC = 16
 
+# H1 temp threshold
+H1_TEMP = 23
+
+# RPi setup
+A3 = 17
+A2 = 16
+A1 = 27
+A0 = 26
+# D = pin 3 of TC reader
+
+CS = 24
+SO = 22
+SCK = 23
+
+# GPIO.setmode(GPIO.BOARD)
+# GPIO.setup(A3, GPIO.OUT)
+# GPIO.setup(A2, GPIO.OUT)
+# GPIO.setup(A1, GPIO.OUT)
+# GPIO.setup(A0, GPIO.OUT)
+
+# GPIO.setup(CS, GPIO.OUT)
+# GPIO.setup(SO, GPIO.OUT)
+# GPIO.setup(SCK, GPIO.OUT)
+
+
 app.layout = html.Div([
     # time interval
     dcc.Interval(id='int-comp', interval=1000, n_intervals=0),
 
     # TC data store
     dcc.Store(id='tc-data-store', data={'time': [], 
+                                        'ln2-object-target': [],
+                                        'h2-object-target': [],
+                                        'ln2-temp': [],
+                                        'h2-temp': [],
+                                        'h2-max': [],
+                                        'over-temp': [],
+                                        'shroud-min': [],
+                                        'h1-temp': [],
                                         **{f'{i+1}': [] for i in range(NUM_TC)}}),
 
     # top half
@@ -713,6 +748,7 @@ def render_content(tab):
 def update_estop(n_clicks):
     if "btn-estop" == ctx.triggered_id:
         # TODO: add functionality for E-Stop
+        # should turn on the override buttons and those should control the heaters
         print("The E-Stop button has been pressed")
         return
 
@@ -748,134 +784,139 @@ def update_estop(n_clicks):
 
 
 # callback function to get average heater TC temp
-@callback(
-    [Output(component_id='temp-heater-temp-out', component_property='children'),
-     Output(component_id='heater-temp-out', component_property='children'),],
-    [Input(component_id='int-comp', component_property='n_intervals'),
-     Input({'type': 'temp-heater-tc-button', 'index': ALL}, 'n_clicks')],
-    State(component_id='tc-data-store', component_property='data')
-)
-def update_average_heater_temp(n_intervals, buttons_n_clicks, store_data):
-    selected_tc_values = [
-        store_data[f'{i+1}'][-1]  # Get the latest value of each selected TC
-        for i in range(NUM_TC)
-        if buttons_n_clicks[i] % 2 == 1
-    ]
+# @callback(
+#     [Output(component_id='temp-heater-temp-out', component_property='children'),
+#      Output(component_id='heater-temp-out', component_property='children'),
+#      Output(component_id='tc-data-store', component_property='data')],
+#     [Input(component_id='int-comp', component_property='n_intervals'),
+#      Input({'type': 'temp-heater-tc-button', 'index': ALL}, 'n_clicks')],
+#     State(component_id='tc-data-store', component_property='data')
+# )
+# def update_average_heater_temp(n_intervals, buttons_n_clicks, store_data):
+#     selected_tc_values = [
+#         store_data[f'{i+1}'][-1]  # Get the latest value of each selected TC
+#         for i in range(NUM_TC)
+#         if buttons_n_clicks[i] % 2 == 1
+#     ]
     
-    if selected_tc_values:
-        average_value = sum(selected_tc_values) / len(selected_tc_values)
-    else:
-        average_value = 0
+#     if selected_tc_values:
+#         average_value = sum(selected_tc_values) / len(selected_tc_values)
+#     else:
+#         average_value = 0
+
+#     store_data['h2-temp'].append(average_value)
     
-    return f"Heater Temp: {average_value:.2f}°C", f"Heater Temp: {average_value:.2f}°C"
+#     return f"Heater Temp: {average_value:.2f}°C", f"Heater Temp: {average_value:.2f}°C", store_data
 
 
 
 # callback function to get average shroud TC temp
-@callback(
-    [Output(component_id='temp-shroud-temp-out', component_property='children'),
-     Output(component_id='shroud-temp-out', component_property='children')],
-    [Input(component_id='int-comp', component_property='n_intervals'),
-     Input({'type': 'temp-ln2-tc-button', 'index': ALL}, 'n_clicks')],
-    State(component_id='tc-data-store', component_property='data')
-)
-def update_average_shroud_temp(n_intervals, buttons_n_clicks, store_data):
-    selected_tc_values = [
-        store_data[f'{i+1}'][-1]  # Get the latest value of each selected TC
-        for i in range(NUM_TC)
-        if buttons_n_clicks[i] % 2 == 1
-    ]
+# @callback(
+#     [Output(component_id='temp-shroud-temp-out', component_property='children'),
+#      Output(component_id='shroud-temp-out', component_property='children'),
+#      Output(component_id='tc-data-store', component_property='data')],
+#     [Input(component_id='int-comp', component_property='n_intervals'),
+#      Input({'type': 'temp-ln2-tc-button', 'index': ALL}, 'n_clicks')],
+#     State(component_id='tc-data-store', component_property='data')
+# )
+# def update_average_shroud_temp(n_intervals, buttons_n_clicks, store_data):
+#     selected_tc_values = [
+#         store_data[f'{i+1}'][-1]  # Get the latest value of each selected TC
+#         for i in range(NUM_TC)
+#         if buttons_n_clicks[i] % 2 == 1
+#     ]
     
-    if selected_tc_values:
-        average_value = sum(selected_tc_values) / len(selected_tc_values)
-    else:
-        average_value = 0
+#     if selected_tc_values:
+#         average_value = sum(selected_tc_values) / len(selected_tc_values)
+#     else:
+#         average_value = 0
+
+#     store_data['ln2-temp'].append(average_value)
     
-    return f"Shroud Temp: {average_value:.2f}°C", f"Shroud Temp: {average_value:.2f}°C"
+#     return f"Shroud Temp: {average_value:.2f}°C", f"Shroud Temp: {average_value:.2f}°C", store_data
 
 
 # callback function to output max for heater
-@callback(
-    Output(component_id='heater-max-out', component_property='style'),
-    [Input(component_id='int-comp', component_property='n_intervals'),
-     Input(component_id='temp-heater-heater-max-in', component_property='value')],
-    [State({'type': 'temp-heater-tc-button', 'index': ALL}, 'n_clicks'),
-    State(component_id='tc-data-store', component_property='data')]
-)
-def update_heater_max(n_intervals, maximum, buttons_n_clicks, store_data):
-    selected_tc_values = [
-        store_data[f'{i+1}'][-1]  # Get the latest value of each selected TC
-        for i in range(NUM_TC)
-        if buttons_n_clicks[i] % 2 == 1
-    ]
+# @callback(
+#     Output(component_id='heater-max-out', component_property='style'),
+#     [Input(component_id='int-comp', component_property='n_intervals'),
+#      Input(component_id='temp-heater-heater-max-in', component_property='value')],
+#     [State({'type': 'temp-heater-tc-button', 'index': ALL}, 'n_clicks'),
+#     State(component_id='tc-data-store', component_property='data')]
+# )
+# def update_heater_max(n_intervals, maximum, buttons_n_clicks, store_data):
+#     selected_tc_values = [
+#         store_data[f'{i+1}'][-1]  # Get the latest value of each selected TC
+#         for i in range(NUM_TC)
+#         if buttons_n_clicks[i] % 2 == 1
+#     ]
     
-    if selected_tc_values:
-        max_value = max(selected_tc_values)
-    else:
-        max_value = -1
+#     if selected_tc_values:
+#         max_value = max(selected_tc_values)
+#     else:
+#         max_value = -1
 
-    if (type(maximum) != type(None) and max_value >= float(maximum)):
-        return {'background-color': "green", 'height': "6.5vh", 'width': "6.5vh", 'border-radius': "100%", 'border': '2px solid black', 'background-color': 'rgb(55,140,77)', 'box-shadow': '0px 0px 3px 3px rgb(62,200,87)'}
-    else:
-        return {'background-color': "grey", 'height': "6.5vh", 'width': "6.5vh", 'border-radius': "100%", 'border': '2px solid black'}
+#     if (type(maximum) != type(None) and max_value >= float(maximum)):
+#         return {'background-color': "green", 'height': "6.5vh", 'width': "6.5vh", 'border-radius': "100%", 'border': '2px solid black', 'background-color': 'rgb(55,140,77)', 'box-shadow': '0px 0px 3px 3px rgb(62,200,87)'}
+#     else:
+#         return {'background-color': "grey", 'height': "6.5vh", 'width': "6.5vh", 'border-radius': "100%", 'border': '2px solid black'}
     
 
 
 # callback function to output shroud lim
-@callback(
-    Output(component_id='ln2-shroud-lim-out', component_property='style'),
-    [Input(component_id='int-comp', component_property='n_intervals'),
-     Input(component_id='temp-ln2-shroud-min-in', component_property='value')],
-    [State({'type': 'temp-ln2-tc-button', 'index': ALL}, 'n_clicks'),
-    State(component_id='tc-data-store', component_property='data')]
-)
-def update_shroud_lim(n_intervals, minimum, buttons_n_clicks, store_data):
-    selected_tc_values = [
-        store_data[f'{i+1}'][-1]  # Get the latest value of each selected TC
-        for i in range(NUM_TC)
-        if buttons_n_clicks[i] % 2 == 1
-    ]
+# @callback(
+#     Output(component_id='ln2-shroud-lim-out', component_property='style'),
+#     [Input(component_id='int-comp', component_property='n_intervals'),
+#      Input(component_id='temp-ln2-shroud-min-in', component_property='value')],
+#     [State({'type': 'temp-ln2-tc-button', 'index': ALL}, 'n_clicks'),
+#     State(component_id='tc-data-store', component_property='data')]
+# )
+# def update_shroud_lim(n_intervals, minimum, buttons_n_clicks, store_data):
+#     selected_tc_values = [
+#         store_data[f'{i+1}'][-1]  # Get the latest value of each selected TC
+#         for i in range(NUM_TC)
+#         if buttons_n_clicks[i] % 2 == 1
+#     ]
     
-    if selected_tc_values:
-        min_value = min(selected_tc_values)
-    else:
-        min_value = 20000
+#     if selected_tc_values:
+#         min_value = min(selected_tc_values)
+#     else:
+#         min_value = 20000
 
-    if (type(minimum) != type(None) and min_value <= float(minimum)):
-        return {'background-color': "green", 'height': "6.5vh", 'width': "6.5vh", 'border-radius': "100%", 'border': '2px solid black', 'background-color': 'rgb(55,140,77)', 'box-shadow': '0px 0px 3px 3px rgb(62,200,87)'}
-    else:
-        return {'background-color': "grey", 'height': "6.5vh", 'width': "6.5vh", 'border-radius': "100%", 'border': '2px solid black'}
+#     if (type(minimum) != type(None) and min_value <= float(minimum)):
+#         return {'background-color': "green", 'height': "6.5vh", 'width': "6.5vh", 'border-radius': "100%", 'border': '2px solid black', 'background-color': 'rgb(55,140,77)', 'box-shadow': '0px 0px 3px 3px rgb(62,200,87)'}
+#     else:
+#         return {'background-color': "grey", 'height': "6.5vh", 'width': "6.5vh", 'border-radius': "100%", 'border': '2px solid black'}
     
-
-
 
 # callback function to output over temp for heater
-@callback(
-    Output(component_id='heater-over-temp-out', component_property='style'),
-    [Input(component_id='int-comp', component_property='n_intervals'),
-     Input(component_id='temp-heater-over-temp-in', component_property='value')],
-    [State({'type': 'temp-over-temp-tc-button', 'index': ALL}, 'n_clicks'),
-    State(component_id='tc-data-store', component_property='data')]
-)
-def update_heater_over_temp(n_intervals, maximum, buttons_n_clicks, store_data):
-    selected_tc_values = [
-        store_data[f'{i+1}'][-1]  # Get the latest value of each selected TC
-        for i in range(NUM_TC)
-        if buttons_n_clicks[i] % 2 == 1
-    ]
+# @callback(
+#     [Output(component_id='heater-over-temp-out', component_property='style'),
+#      Output(component_id='tc-data-store', component_property='data')],
+#     [Input(component_id='int-comp', component_property='n_intervals'),
+#      Input(component_id='temp-heater-over-temp-in', component_property='value')],
+#     [State({'type': 'temp-over-temp-tc-button', 'index': ALL}, 'n_clicks'),
+#     State(component_id='tc-data-store', component_property='data')]
+# )
+# def update_heater_over_temp(n_intervals, maximum, buttons_n_clicks, store_data):
+#     store_data['over-temp'].append(maximum)
+
+#     selected_tc_values = [
+#         store_data[f'{i+1}'][-1]  # Get the latest value of each selected TC
+#         for i in range(NUM_TC)
+#         if buttons_n_clicks[i] % 2 == 1
+#     ]
     
-    if selected_tc_values:
-        max_value = max(selected_tc_values)
-    else:
-        max_value = -1
+#     if selected_tc_values:
+#         max_value = max(selected_tc_values)
+#     else:
+#         max_value = -1
 
-    if (type(maximum) != type(None) and max_value >= float(maximum)):
-        return {'background-color': "green", 'height': "6.5vh", 'width': "6.5vh", 'border-radius': "100%", 'border': '2px solid black', 'background-color': 'rgb(55,140,77)', 'box-shadow': '0px 0px 3px 3px rgb(62,200,87)'}
-    else:
-        return {'background-color': "grey", 'height': "6.5vh", 'width': "6.5vh", 'border-radius': "100%", 'border': '2px solid black'}
+#     if (type(maximum) != type(None) and max_value >= float(maximum)):
+#         return {'background-color': "green", 'height': "6.5vh", 'width': "6.5vh", 'border-radius': "100%", 'border': '2px solid black', 'background-color': 'rgb(55,140,77)', 'box-shadow': '0px 0px 3px 3px rgb(62,200,87)'}, store_data
+#     else:
+#         return {'background-color': "grey", 'height': "6.5vh", 'width': "6.5vh", 'border-radius': "100%", 'border': '2px solid black'}, store_data
     
-
-
 
 # callback function to update deltas
 @callback(
@@ -898,7 +939,6 @@ def update_delta_temps(n_intervals, heater_temp, shroud_temp, object_temp):
         return f"Delta to Hot: {delta_hot:.2f}°C", f"Delta to Cold: {delta_cold:.2f}°C"
     else:
         return "", ""
-
 
 
 # callback function to output @ target for heater
@@ -930,7 +970,7 @@ def update_heater_at_target(n_intervals, buttons_n_clicks, object_target, store_
         return {'background-color': "grey", 'height': "6.5vh", 'width': "6.5vh", 'border-radius': "100%", 'border': '2px solid black'}, f"Object Temp: {average_value:.2f}°C", f"Object Temp: {average_value:.2f}°C"
 
 
-# callback function to output @ target for heater
+# callback function to output @ target for ln2
 @callback(
     Output(component_id='ln2-@-target-out', component_property='style'),
     [Input(component_id='int-comp', component_property='n_intervals'),
@@ -957,7 +997,6 @@ def update_ln2_at_target(n_intervals, buttons_n_clicks, object_target, store_dat
         return {'background-color': "grey", 'height': "6.5vh", 'width': "6.5vh", 'border-radius': "100%", 'border': '2px solid black'}
 
 
-
 # callback to save TC locations to file
 @callback(
     [Input(f'location-{i+1}-in', 'value') for i in range(NUM_TC)], 
@@ -978,6 +1017,7 @@ def save_tc_location(*values):
 
     return
 
+# <---------------------------------------------------------------------------------------
 # callback function to save store to file
 # @callback(
 #     Input(component_id='int-comp', component_property='n_intervals'),
@@ -990,7 +1030,7 @@ def save_tc_location(*values):
 #         with open(file_path, 'w') as file:
 #             json.dump(store_data, file, indent=4)
 #     return
-
+# ---------------------------------------------------------------------------------------->
 
 # callback function to update TC data displayed
 @callback(
@@ -1007,24 +1047,210 @@ def update_tc_data_out(n_intervals, store_data):
 
 # callback function to update store with new TC data
 @callback(
-    Output(component_id='tc-data-store', component_property='data'),
+    [Output(component_id='tc-data-store', component_property='data'),
+     Output(component_id='heater-over-temp-out', component_property='style'),
+     Output(component_id='temp-shroud-temp-out', component_property='children'),
+     Output(component_id='shroud-temp-out', component_property='children'),
+     Output(component_id='temp-heater-temp-out', component_property='children'),
+     Output(component_id='heater-temp-out', component_property='children'),
+     Output(component_id='heater-max-out', component_property='style'),
+     Output(component_id='ln2-shroud-lim-out', component_property='style')],
     Input(component_id="int-comp", component_property='n_intervals'),
-    State(component_id='tc-data-store', component_property='data')
+    [State(component_id='tc-data-store', component_property='data'),
+     State(component_id="temp-ln2-object-target-in", component_property='value'),
+     State(component_id="temp-heater-object-target-in", component_property='value'),
+     State(component_id="temp-ln2-shroud-min-in", component_property='value'),
+     State(component_id="temp-heater-over-temp-in", component_property='value'),
+     State(component_id="temp-heater-heater-max-in", component_property='value'),
+     State({'type': 'temp-over-temp-tc-button', 'index': ALL}, 'n_clicks'),
+     State({'type': 'temp-ln2-tc-button', 'index': ALL}, 'n_clicks'),
+     State({'type': 'temp-heater-tc-button', 'index': ALL}, 'n_clicks')]
 )
-def update_data_store(n_intervals, data):
+def update_data_store(n_intervals, data, ln2_obj_target, h2_obj_target, shroud_min, over_temp, heater_max, 
+                      over_temp_buttons_n_clicks, ln2_buttons_n_clicks, h2_buttons_n_clicks):
     # Update time values
     new_time = (data['time'][-1] + 1) if data['time'] else 0
 
     # Update the store with the new time value
     data['time'].append(new_time)
 
+    # move all average calculations and stuff in here to have data store be updated in one place
+    data['ln2-object-target'].append(ln2_obj_target)
+    data['h2-object-target'].append(h2_obj_target)
+    
+
     # Simulate new data for all TCs
     for tc in data:
-        if tc != 'time':  # Skip the 'time' key
+        if tc.isnumeric():  # Skip the 'time' key
             new_value = random.uniform(18, 25)  # Simulate new random data
             data[tc].append(new_value)
+
     
-    return data
+    # over temp calculations
+    selected_tc_values = [
+        data[f'{i+1}'][-1]  # Get the latest value of each selected TC
+        for i in range(NUM_TC)
+        if over_temp_buttons_n_clicks[i] % 2 == 1
+    ]
+    
+    if selected_tc_values:
+        max_value = max(selected_tc_values)
+    else:
+        max_value = -1
+
+    if (type(over_temp) != type(None) and max_value >= float(over_temp)):
+        heater_over_temp = {'background-color': "green", 'height': "6.5vh", 'width': "6.5vh", 'border-radius': "100%", 'border': '2px solid black', 'background-color': 'rgb(55,140,77)', 'box-shadow': '0px 0px 3px 3px rgb(62,200,87)'}
+        data['over-temp'].append(1)
+    else:
+        heater_over_temp = {'background-color': "grey", 'height': "6.5vh", 'width': "6.5vh", 'border-radius': "100%", 'border': '2px solid black'}
+        data['over-temp'].append(0)
+
+
+    # shroud temp calculations
+    selected_tc_values = [
+        data[f'{i+1}'][-1]  # Get the latest value of each selected TC
+        for i in range(NUM_TC)
+        if ln2_buttons_n_clicks[i] % 2 == 1
+    ]
+    
+    if selected_tc_values:
+        average_value = sum(selected_tc_values) / len(selected_tc_values)
+    else:
+        average_value = 0
+
+    data['ln2-temp'].append(average_value)
+    
+    shroud_temp_out = f"Shroud Temp: {average_value:.2f}°C"
+
+
+    # heater temp calculations
+    selected_tc_values = [
+        data[f'{i+1}'][-1]  # Get the latest value of each selected TC
+        for i in range(NUM_TC)
+        if h2_buttons_n_clicks[i] % 2 == 1
+    ]
+    
+    if selected_tc_values:
+        average_value = sum(selected_tc_values) / len(selected_tc_values)
+    else:
+        average_value = 0
+
+    data['h2-temp'].append(average_value)
+    
+    heater_temp_out = f"Heater Temp: {average_value:.2f}°C"
+
+    
+    # heater max calculations
+    selected_tc_values = [
+        data[f'{i+1}'][-1]  # Get the latest value of each selected TC
+        for i in range(NUM_TC)
+        if h2_buttons_n_clicks[i] % 2 == 1
+    ]
+    
+    if selected_tc_values:
+        max_value = max(selected_tc_values)
+    else:
+        max_value = -1
+
+    if (type(heater_max) != type(None) and max_value >= float(heater_max)):
+        heater_max_out = {'background-color': "green", 'height': "6.5vh", 'width': "6.5vh", 'border-radius': "100%", 'border': '2px solid black', 'background-color': 'rgb(55,140,77)', 'box-shadow': '0px 0px 3px 3px rgb(62,200,87)'}
+        data['h2-max'].append(1)
+    else:
+        heater_max_out = {'background-color': "grey", 'height': "6.5vh", 'width': "6.5vh", 'border-radius': "100%", 'border': '2px solid black'}
+        data['h2-max'].append(0)
+
+    
+    # shroud min calculations
+    selected_tc_values = [
+        data[f'{i+1}'][-1]  # Get the latest value of each selected TC
+        for i in range(NUM_TC)
+        if ln2_buttons_n_clicks[i] % 2 == 1
+    ]
+    
+    if selected_tc_values:
+        min_value = min(selected_tc_values)
+    else:
+        min_value = 20000
+
+    if (type(shroud_min) != type(None) and min_value <= float(shroud_min)):
+        shroud_min_out = {'background-color': "green", 'height': "6.5vh", 'width': "6.5vh", 'border-radius': "100%", 'border': '2px solid black', 'background-color': 'rgb(55,140,77)', 'box-shadow': '0px 0px 3px 3px rgb(62,200,87)'}
+        data['shroud-min'].append(1)
+    else:
+        shroud_min_out = {'background-color': "grey", 'height': "6.5vh", 'width': "6.5vh", 'border-radius': "100%", 'border': '2px solid black'}
+        data['shroud-min'].append(0)
+
+
+    # H1 temp calculations
+    h1_average = (data['15'][-1] + data['16'][-1]) / 2
+    data['h1-temp'].append(h1_average)
+    
+
+    return data, heater_over_temp, shroud_temp_out, shroud_temp_out, heater_temp_out, heater_temp_out, heater_max_out, shroud_min_out
+
+
+
+# # function to control reading from TC
+# def read_tc(tc_num):
+#     # output to read TC value from TC #tc_num
+#     if tc_num < 0 or tc_num > NUM_TC-1:
+#         print("Invalid select")
+#         return
+    
+#     s0 = tc_num & 0x01  # Least significant bit (S0)
+#     s1 = (tc_num >> 1) & 0x01  # Second bit (S1)
+#     s2 = (tc_num >> 2) & 0x01  # Third bit (S2)
+#     s3 = (tc_num >> 3) & 0x01  # Most significant bit (S3)
+    
+#     # Set the select lines to choose the tc_num
+#     GPIO.output(A0, s0)
+#     GPIO.output(A1, s1)
+#     GPIO.output(A2, s2)
+#     GPIO.output(A3, s3)
+    
+#     print(f"tc_num {tc_num} selected (S3={s3}, S2={s2}, S1={s1}, S0={s0}).")
+
+#     # read information from TC
+#     # Start communication by pulling CS low
+#     GPIO.output(CS, GPIO.LOW)
+    
+#     # Read 32 bits from the MAX31855
+#     raw_value = 0
+#     for i in range(32):
+#         # Clock high to low (data is valid on falling edge)
+#         GPIO.output(SCK, GPIO.HIGH)
+#         time.sleep(0.00001)  # Short delay
+        
+#         # Read the bit from the DO pin
+#         bit = GPIO.input(SO)
+#         raw_value = (raw_value << 1) | bit
+        
+#         # Clock low again
+#         GPIO.output(SCK, GPIO.LOW)
+#         time.sleep(0.00001)
+    
+#     # End communication by setting CS high
+#     GPIO.output(CS, GPIO.HIGH)
+
+
+#     # Check if the thermocouple is open (D16 bit)
+#     if raw_value & 0x00010000:
+#         raise Exception("Thermocouple is not connected")
+    
+#     # Extract the thermocouple temperature (bits 31-18, signed 14-bit value)
+#     thermocouple_temp = (raw_value >> 18) & 0x3FFF
+    
+#     # If the temperature is negative, adjust the signed value
+#     if thermocouple_temp & 0x2000:  # Sign bit check
+#         thermocouple_temp -= 0x4000  # Convert to negative value
+    
+#     # Convert to Celsius (LSB = 0.25°C)
+#     thermocouple_temp_c = thermocouple_temp * 0.25
+
+
+#     GPIO.cleanup()
+#     return thermocouple_temp_c
+
+
 
 
 # callback function to update graph every second
@@ -1085,7 +1311,7 @@ def update_tc_select(selected_values):
         [State(component_id='btn-h1-override-on-off', component_property='disabled')]
 )
 def h1_override_control(toggle_n_clicks, on_off_n_clicks, disabled):
-    if toggle_n_clicks % 2 == 1:
+    if (type(toggle_n_clicks) != type(None)) and (toggle_n_clicks % 2 == 1):
         if disabled:
             return False, {'background-color': "grey", 'height': "10vh", 'width': "10vh", 'border-radius': "100%", 'border': '2px solid black'}, {'background-color': "green", 'height': "10vh", 'width': "10vh", 'border-radius': "100%",
                                 'border': '2px solid black', 'background-color': 'rgb(55,140,77)', 'box-shadow': '0px 0px 3px 3px rgb(62,200,87)'}, on_off_n_clicks
@@ -1098,7 +1324,7 @@ def h1_override_control(toggle_n_clicks, on_off_n_clicks, disabled):
                 return False, {'background-color': "grey", 'height': "10vh", 'width': "10vh", 'border-radius': "100%", 'border': '2px solid black'}, {'background-color': "green", 'height': "10vh", 'width': "10vh", 'border-radius': "100%",
                                                                                                                                                         'border': '2px solid black', 'background-color': 'rgb(55,140,77)', 'box-shadow': '0px 0px 3px 3px rgb(62,200,87)'}, on_off_n_clicks
     else:
-        if on_off_n_clicks % 2 == 1:
+        if (type(on_off_n_clicks) != type(None)) and (on_off_n_clicks % 2 == 1):
             return True, {'background-color': "grey", 'height': "10vh", 'width': "10vh", 'border-radius': "100%", 'border': '2px solid black'}, {'background-color': "grey", 'height': "10vh", 'width': "10vh", 'border-radius': "100%", 'border': '2px solid black'}, on_off_n_clicks-1
         else:
             return True, {'background-color': "grey", 'height': "10vh", 'width': "10vh", 'border-radius': "100%", 'border': '2px solid black'}, {'background-color': "grey", 'height': "10vh", 'width': "10vh", 'border-radius': "100%", 'border': '2px solid black'}, on_off_n_clicks
@@ -1116,7 +1342,7 @@ def h1_override_control(toggle_n_clicks, on_off_n_clicks, disabled):
         [State(component_id='btn-heater-override-on-off', component_property='disabled')]
 )
 def heater_override_control(toggle_n_clicks, on_off_n_clicks, disabled):
-    if toggle_n_clicks % 2 == 1:
+    if (type(toggle_n_clicks) != type(None)) and toggle_n_clicks % 2 == 1:
         if disabled:
             return False, {'background-color': "grey", 'height': "10vh", 'width': "10vh", 'border-radius': "100%", 'border': '2px solid black'}, {'background-color': "green", 'height': "10vh", 'width': "10vh", 'border-radius': "100%",
                                 'border': '2px solid black', 'background-color': 'rgb(55,140,77)', 'box-shadow': '0px 0px 3px 3px rgb(62,200,87)'}, on_off_n_clicks, {'background-color': "grey", 'height': "6.5vh", 'width': "6.5vh", 'border-radius': "100%", 'border': '2px solid black'}
@@ -1130,7 +1356,7 @@ def heater_override_control(toggle_n_clicks, on_off_n_clicks, disabled):
                 return False, {'background-color': "grey", 'height': "10vh", 'width': "10vh", 'border-radius': "100%", 'border': '2px solid black'}, {'background-color': "green", 'height': "10vh", 'width': "10vh", 'border-radius': "100%",
                                                                                                                                                         'border': '2px solid black', 'background-color': 'rgb(55,140,77)', 'box-shadow': '0px 0px 3px 3px rgb(62,200,87)'}, on_off_n_clicks, {'background-color': "grey", 'height': "6.5vh", 'width': "6.5vh", 'border-radius': "100%", 'border': '2px solid black'}
     else:
-        if on_off_n_clicks % 2 == 1:
+        if (type(on_off_n_clicks) != type(None)) and on_off_n_clicks % 2 == 1:
             return True, {'background-color': "grey", 'height': "10vh", 'width': "10vh", 'border-radius': "100%", 'border': '2px solid black'}, {'background-color': "grey", 'height': "10vh", 'width': "10vh", 'border-radius': "100%", 'border': '2px solid black'}, on_off_n_clicks-1, {'background-color': "grey", 'height': "6.5vh", 'width': "6.5vh", 'border-radius': "100%", 'border': '2px solid black'}
         else:
             return True, {'background-color': "grey", 'height': "10vh", 'width': "10vh", 'border-radius': "100%", 'border': '2px solid black'}, {'background-color': "grey", 'height': "10vh", 'width': "10vh", 'border-radius': "100%", 'border': '2px solid black'}, on_off_n_clicks, {'background-color': "grey", 'height': "6.5vh", 'width': "6.5vh", 'border-radius': "100%", 'border': '2px solid black'}
@@ -1148,7 +1374,7 @@ def heater_override_control(toggle_n_clicks, on_off_n_clicks, disabled):
         [State(component_id='btn-ln2-override-on-off', component_property='disabled')]
 )
 def ln2_override_control(toggle_n_clicks, on_off_n_clicks, disabled):
-    if toggle_n_clicks % 2 == 1:
+    if (type(toggle_n_clicks) != type(None)) and toggle_n_clicks % 2 == 1:
         if disabled:
             return False, {'background-color': "grey", 'height': "10vh", 'width': "10vh", 'border-radius': "100%", 'border': '2px solid black'}, {'background-color': "green", 'height': "10vh", 'width': "10vh", 'border-radius': "100%",
                                 'border': '2px solid black', 'background-color': 'rgb(55,140,77)', 'box-shadow': '0px 0px 3px 3px rgb(62,200,87)'}, on_off_n_clicks, {'background-color': "grey", 'height': "6.5vh", 'width': "6.5vh", 'border-radius': "100%", 'border': '2px solid black'}
@@ -1162,7 +1388,7 @@ def ln2_override_control(toggle_n_clicks, on_off_n_clicks, disabled):
                 return False, {'background-color': "grey", 'height': "10vh", 'width': "10vh", 'border-radius': "100%", 'border': '2px solid black'}, {'background-color': "green", 'height': "10vh", 'width': "10vh", 'border-radius': "100%",
                                                                                                                                                         'border': '2px solid black', 'background-color': 'rgb(55,140,77)', 'box-shadow': '0px 0px 3px 3px rgb(62,200,87)'}, on_off_n_clicks, {'background-color': "grey", 'height': "6.5vh", 'width': "6.5vh", 'border-radius': "100%", 'border': '2px solid black'}
     else:
-        if on_off_n_clicks % 2 == 1:
+        if (type(on_off_n_clicks) != type(None)) and on_off_n_clicks % 2 == 1:
             return True, {'background-color': "grey", 'height': "10vh", 'width': "10vh", 'border-radius': "100%", 'border': '2px solid black'}, {'background-color': "grey", 'height': "10vh", 'width': "10vh", 'border-radius': "100%", 'border': '2px solid black'}, on_off_n_clicks-1, {'background-color': "grey", 'height': "6.5vh", 'width': "6.5vh", 'border-radius': "100%", 'border': '2px solid black'}
         else:
             return True, {'background-color': "grey", 'height': "10vh", 'width': "10vh", 'border-radius': "100%", 'border': '2px solid black'}, {'background-color': "grey", 'height': "10vh", 'width': "10vh", 'border-radius': "100%", 'border': '2px solid black'}, on_off_n_clicks, {'background-color': "grey", 'height': "6.5vh", 'width': "6.5vh", 'border-radius': "100%", 'border': '2px solid black'}
@@ -1187,13 +1413,13 @@ def update_pass_through_min(min_value):
     return
 
 # Callback function for when LN2 object target is changed
-@callback(
-    Input(component_id="temp-ln2-object-target-in", component_property='value')
-)
-def update_ln2_object_target(target_value):
-    # Functionality for LN2 object target change
-    print("LN2 Object Target changed to", target_value)
-    return
+# @callback(
+#     Input(component_id="temp-ln2-object-target-in", component_property='value')
+# )
+# def update_ln2_object_target(target_value):
+#     # Functionality for LN2 object target change
+#     print("LN2 Object Target changed to", target_value)
+#     return
 
 # Callback for LN2 On Time Input
 @callback(
@@ -1204,36 +1430,36 @@ def update_ln2_on_time(ln2_on_time):
     return
 
 # Callback for LN2 Shroud Min Input
-@callback(
-    Input(component_id="temp-ln2-shroud-min-in", component_property='value')
-)
-def update_ln2_shroud_min(shroud_min):
-    print("LN2 Shroud Min changed to", shroud_min)
-    return
+# @callback(
+#     Input(component_id="temp-ln2-shroud-min-in", component_property='value')
+# )
+# def update_ln2_shroud_min(shroud_min):
+#     print("LN2 Shroud Min changed to", shroud_min)
+#     return
 
 # Callback for Heater Object Target Input
-@callback(
-    Input(component_id="temp-heater-object-target-in", component_property='value')
-)
-def update_heater_object_target(heater_target):
-    print("Heater Object Target changed to", heater_target)
-    return
+# @callback(
+#     Input(component_id="temp-heater-object-target-in", component_property='value')
+# )
+# def update_heater_object_target(heater_target):
+#     print("Heater Object Target changed to", heater_target)
+#     return
 
 # Callback for Heater Over Temp Input
-@callback(
-    Input(component_id="temp-heater-over-temp-in", component_property='value')
-)
-def update_heater_over_temp(over_temp):
-    print("Heater Over Temp changed to", over_temp)
-    return
+# @callback(
+#     Input(component_id="temp-heater-over-temp-in", component_property='value')
+# )
+# def update_heater_over_temp(over_temp):
+#     print("Heater Over Temp changed to", over_temp)
+#     return
 
 # Callback for Heater Max Input
-@callback(
-    Input(component_id="temp-heater-heater-max-in", component_property='value')
-)
-def update_heater_max(heater_max):
-    print("Heater Max changed to", heater_max)
-    return
+# @callback(
+#     Input(component_id="temp-heater-heater-max-in", component_property='value')
+# )
+# def update_heater_max(heater_max):
+#     print("Heater Max changed to", heater_max)
+#     return
 
 
 # Callback to handle temp object TC button clicks
@@ -1457,6 +1683,88 @@ def update_log_ln2_status_btn(n_clicks):
                     'width': "6vh",
                     'border-radius': "100%",
                     'border': '2px solid black'}
+
+
+# control loop function
+@callback(
+    [Output(component_id="btn-ln2-status", component_property="style"),
+     Output(component_id="btn-heater-status", component_property="style"),
+     Output(component_id="btn-h1-status", component_property="style")],
+    Input(component_id="int-comp", component_property="n_intervals"),
+    State(component_id='tc-data-store', component_property='data')
+
+)
+def control_loop(n_intervals, data):
+    # heater_status = {}
+    # ln2_status = {}
+    # h1_status = {}
+
+    # H2
+    if data['h2-object-target'] and type(data['h2-object-target'][-1]) != type(None) and float(data['h2-object-target'][-1]) > data['h2-temp'][-1]:
+        # heater on
+        print("heater on")
+        heater_status = {
+                            'height': "3vh", 'width': "10vw", 'background-color': "rgb(230, 14, 7)",  'color': "white",
+                            'font-size': "2vh", 'margin': "0vh auto", 'border-radius': '10px',  # Rounded corners to enhance the glow effect
+                            'box-shadow': '0 0 10px rgba(255, 0, 0, 0.7), 0 0 20px rgba(255, 0, 0, 0.5), 0 0 30px rgba(255, 0, 0, 0.3)',  # Glow effect
+                            'border': '2px solid rgba(255, 0, 0, 0.8)'  # Slightly glowing border
+                        }
+    else:
+        heater_status = {
+                            'height': "3vh", 'width': "10vw", 'background-color': "rgb(140,20,11)", 'color': "white",
+                            'font-size': "2vh", 'margin': "0vh auto"
+                        }
+        
+    if data['h2-max'] and data['h2-max'][-1]:
+        print('heater_max')
+        heater_status = {
+                            'height': "3vh", 'width': "10vw", 'background-color': "rgb(140,20,11)", 'color': "white",
+                            'font-size': "2vh", 'margin': "0vh auto"
+                        }
+    if data['over-temp'] and data['over-temp'][-1]: 
+        print('over_temp')
+        heater_status = {
+                            'height': "3vh", 'width': "10vw", 'background-color': "rgb(140,20,11)", 'color': "white",
+                            'font-size': "2vh", 'margin': "0vh auto"
+                        }
+        
+    # LN2
+    if (data['ln2-object-target']) and (data['ln2-temp']) and (type(data['ln2-object-target'][-1]) != type(None)) and (float(data['ln2-object-target'][-1]) < data['ln2-temp'][-1]):
+        print('ln2 on')
+        ln2_status = {
+                        'height': "7vh", 'width': "7vw", 'background-color': "rgb(56, 217, 7)", 'color': "white",
+                        'font-size': "2vh", 'margin': "1vh 1vh", 'border-radius': '10px',  # Rounded corners to enhance the glow effect
+                        'box-shadow': '0 0 15px rgba(0, 255, 0, 0.7), 0 0 30px rgba(0, 255, 0, 0.5), 0 0 45px rgba(0, 255, 0, 0.3)',  # Glowing green effect
+                        'border': '2px solid rgba(0, 255, 0, 0.8)'  # Slightly glowing green border
+                    }
+    else:
+        ln2_status = {
+                        'height': "7vh", 'width': "7vw", 'background-color': "rgb(20,82,29)", 'color': "white",
+                        'font-size': "2vh", 'margin': "1vh 1vh"
+                     }
+        
+    if data['shroud-min'] and data['shroud-min'][-1]:
+        ln2_status = {
+                        'height': "7vh", 'width': "7vw", 'background-color': "rgb(20,82,29)", 'color': "white",
+                        'font-size': "2vh", 'margin': "1vh 1vh"
+                     }
+
+    # H1
+    if data['h1-temp'] and data['h1-temp'][-1] > H1_TEMP:
+        h1_status = {
+                        'height': "4vh", 'width': "10vw", 'background-color': "rgb(140,20,11)", 'color': "white",
+                        'font-size': "2vh", 'margin': "0.5vh 1vh"
+                    }
+    else:
+        h1_status = {
+                        'height': "4vh", 'width': "10vw", 'background-color': "rgb(230, 14, 7)", 'color': "white",
+                        'font-size': "2vh", 'margin': "0.5vh 1vh", 'border-radius': '10px',  # Rounded corners for a smooth glow effect
+                        'box-shadow': '0 0 15px rgba(255, 0, 0, 0.7), 0 0 30px rgba(255, 0, 0, 0.5), 0 0 45px rgba(255, 0, 0, 0.3)',  # Glowing red effect
+                        'border': '2px solid rgba(255, 0, 0, 0.8)'  # Slightly glowing red border
+                    }
+
+    return ln2_status, heater_status, h1_status
+
 
 
 if __name__ == '__main__':
