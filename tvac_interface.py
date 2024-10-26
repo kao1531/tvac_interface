@@ -4,7 +4,7 @@
 
 from dash import Dash, dcc, html, Input, Output, ctx, callback, MATCH, State, ALL
 # import plotly.express as px
-# import pandas as pd
+import pandas as pd
 from collections import deque
 import random
 import plotly.graph_objs as go
@@ -12,19 +12,12 @@ import json
 import os
 import RPi.GPIO as GPIO
 import time
+from datetime import datetime
 from max31855.max31855 import MAX31855, MAX31855Error
+import csv
 
 
 app = Dash(__name__)
-
-# df = pd.read_csv('https://gist.githubusercontent.com/chriddyp/5d1ea79569ed194d432e56108a04d188/raw/a9f9e8076b837d541398e999dcbac2b2826a81f8/gdp-life-exp-2007.csv')
-
-# fig = px.scatter(df, x="gdp per capita", y="life expectancy",
-#                  size="population", color="continent", hover_name="country",
-#                  log_x=True, size_max=60)
-
-# df = px.data.iris()  # iris is a pandas DataFrame
-# fig = px.scatter(df, x="sepal_width", y="sepal_length")
 
 # create CSS file that will make it look better
 
@@ -44,24 +37,34 @@ NUM_TC = 16
 H1_TEMP = 23
 
 # RPi setup
+# mux selects
 A3 = 17
 A2 = 16
 A1 = 27
 A0 = 26
 # D = pin 3 of TC reader
 
+# TC reader
 CS = 24
 SO = 22
 SCK = 23
 
+# Heater control
+H1 = 12
+H2 = 13
+LN2 = 18
+
 thermocouple = MAX31855(CS, SCK, SO)
 
 # GPIO.setmode(GPIO.BOARD)
-GPIO.setup(A3, GPIO.OUT)
-GPIO.setup(A2, GPIO.OUT)
-GPIO.setup(A1, GPIO.OUT)
-GPIO.setup(A0, GPIO.OUT)
+# GPIO.setup(A3, GPIO.OUT)
+# GPIO.setup(A2, GPIO.OUT)
+# GPIO.setup(A1, GPIO.OUT)
+# GPIO.setup(A0, GPIO.OUT)
 
+GPIO.setup(H1, GPIO.OUT)
+GPIO.setup(H2, GPIO.OUT)
+GPIO.setup(LN2, GPIO.OUT)
 # GPIO.setup(CS, GPIO.OUT)
 # GPIO.setup(SO, GPIO.OUT)
 # GPIO.setup(SCK, GPIO.OUT)
@@ -72,7 +75,7 @@ app.layout = html.Div([
     dcc.Interval(id='int-comp', interval=1000, n_intervals=0),
 
     # TC data store
-    dcc.Store(id='tc-data-store', data={'time': [], 
+    dcc.Store(id='tc-data-store', data={'time': [time.time()], 
                                         'ln2-object-target': [],
                                         'h2-object-target': [],
                                         'ln2-temp': [],
@@ -81,7 +84,7 @@ app.layout = html.Div([
                                         'over-temp': [],
                                         'shroud-min': [],
                                         'h1-temp': [],
-                                        **{f'{i+1}': [] for i in range(NUM_TC)}}),
+                                        **{f'{i+1}': [0] for i in range(NUM_TC)}}),
 
     # top half
     html.Div([html.Table(
@@ -782,8 +785,8 @@ def update_estop(n_clicks):
 # )
 # def update_heater_temp(temp):
     # TODO: add functionality for heater temp change
-    print("Heater temp changed to ", temp)
-    return
+    # print("Heater temp changed to ", temp)
+    # return
 
 
 # callback function to get average heater TC temp
@@ -1022,17 +1025,38 @@ def save_tc_location(*values):
 
 # <---------------------------------------------------------------------------------------
 # callback function to save store to file
-# @callback(
-#     Input(component_id='int-comp', component_property='n_intervals'),
-#     State(component_id='tc-data-store', component_property='data')
-# )
-# def save_store_data(n_intervals, store_data):
-#     if n_intervals % 5 == 0:
-#     # Save the store data to a JSON file every 5 seconds for now
-#         file_path = 'thermocouple_data.json' # need to update to file path/location in log tab
-#         with open(file_path, 'w') as file:
-#             json.dump(store_data, file, indent=4)
-#     return
+@callback(
+    [Input(component_id='int-comp', component_property='n_intervals')],
+    [State(component_id='tc-data-store', component_property='data'),
+     State(component_id="file-path-in", component_property='value'),
+     State(component_id="file-name-in", component_property='value'),
+     State(component_id="log-freq-in", component_property='value'),
+     State(component_id='log-tcs-btn', component_property='n_clicks'),
+     State(component_id='log-heater-status-btn', component_property='n_clicks'),
+     State(component_id='log-ln2-status-btn', component_property='n_clicks')]
+)
+def save_store_data(n_intervals, store_data, file_path, file_name, freq, log_tcs_n_clicks, log_heater_n_clicks, log_ln2_n_clicks):
+    if type(freq) != type(None) and n_intervals % int(freq) == 0:
+    # Save the store data to a JSON file every 5 seconds for now
+        # file_path = 'thermocouple_data.json' # need to update to file path/location in log tab
+        keys = []
+        # if log_tcs_n_clicks % 2 == 0:
+        #     keys.append("tcs")
+        if log_heater_n_clicks % 2 == 0:
+            keys.append("h2-temp")
+        if log_ln2_n_clicks % 2 == 0:
+            keys.append("ln2-temp")
+
+        # need to get all the selected TCs and save the corresponding values
+        # or does it mean to just save the average temp
+        filtered_data = {key:store_data[key] for key in keys if key in store_data}
+
+        file = file_path + '/' + file_name
+        if file_path and file_name:
+            with open(file, 'w') as file:
+                # check what data should be stored
+                json.dump(filtered_data, file, indent=4)
+    return
 # ---------------------------------------------------------------------------------------->
 
 # callback function to update TC data displayed
@@ -1072,22 +1096,25 @@ def update_tc_data_out(n_intervals, store_data):
 def update_data_store(n_intervals, data, ln2_obj_target, h2_obj_target, shroud_min, over_temp, heater_max, 
                       over_temp_buttons_n_clicks, ln2_buttons_n_clicks, h2_buttons_n_clicks):
     # Update time values
-    new_time = (data['time'][-1] + 1) if data['time'] else 0
+    # new_time = (data['time'][-1] + 1) if data['time'] else 0
 
     # Update the store with the new time value
-    data['time'].append(new_time)
+    # data['time'].append(new_time)
 
     # move all average calculations and stuff in here to have data store be updated in one place
     data['ln2-object-target'].append(ln2_obj_target)
     data['h2-object-target'].append(h2_obj_target)
     
-
-    # Simulate new data for all TCs
-    for tc in data:
-        if tc.isnumeric():  # Skip the 'time' key
-            # new_value = random.uniform(18, 25)  # Simulate new random data
-            new_value = read_tc(int(tc))
-            data[tc].append(new_value)
+    #
+    # read from csv
+    temp_file = []
+    with open('temp.csv', mode = 'r') as myfile:
+        reader = csv.reader(myfile)
+        for row in reader:
+            temp_file = list(map(float,row))
+        
+    for i in range(len(temp_file)):
+        data[f'{i+1}'].append(temp_file[i])
 
     
     # over temp calculations
@@ -1192,29 +1219,53 @@ def update_data_store(n_intervals, data, ln2_obj_target, h2_obj_target, shroud_m
     return data, heater_over_temp, shroud_temp_out, shroud_temp_out, heater_temp_out, heater_temp_out, heater_max_out, shroud_min_out
 
 
-
-# function to control reading from TC
-def read_tc(tc_num):
+def set_tc(tc_num):
     # output to read TC value from TC #tc_num
-    if tc_num < 0 or tc_num > NUM_TC-1:
+    if tc_num <= -1 or tc_num > NUM_TC:
         print("Invalid select")
         return
+
+    tc_num = tc_num-1
     
     s0 = tc_num & 0x01  # Least significant bit (S0)
     s1 = (tc_num >> 1) & 0x01  # Second bit (S1)
     s2 = (tc_num >> 2) & 0x01  # Third bit (S2)
     s3 = (tc_num >> 3) & 0x01  # Most significant bit (S3)
-    
-    # Set the select lines to choose the tc_num
     GPIO.output(A0, s0)
     GPIO.output(A1, s1)
     GPIO.output(A2, s2)
     GPIO.output(A3, s3)
+
+# function to control reading from TC
+def read_tc(tc_num):
+    # output to read TC value from TC #tc_num
+    if tc_num <= -1 or tc_num > NUM_TC:
+        print("Invalid select")
+        return
+
+    tc_num = tc_num-1
     
-    print(f"tc_num {tc_num} selected (S3={s3}, S2={s2}, S1={s1}, S0={s0}).")
+    # s0 = tc_num & 0x01  # Least significant bit (S0)
+    # s1 = (tc_num >> 1) & 0x01  # Second bit (S1)
+    # s2 = (tc_num >> 2) & 0x01  # Third bit (S2)
+    # s3 = (tc_num >> 3) & 0x01  # Most significant bit (S3)
+    
+    # Set the select lines to choose the tc_num
+    # GPIO.output(A0, s0)
+    # GPIO.output(A1, s1)
+    # GPIO.output(A2, s2)
+    # GPIO.output(A3, s3)
+    #GPIO.output(A0, 1)
+    #GPIO.output(A1, 0)
+    #GPIO.output(A2, 0)
+    #GPIO.output(A3, 0)
+    
+    # print(f"tc_num {tc_num} selected (S3={s3}, S2={s2}, S1={s1}, S0={s0}).")
+    # time.sleep(.01)
 
     # read information from TC
     thermocouple_temp_c = thermocouple.get()
+    # print(thermocouple_temp_c)
     # # Start communication by pulling CS low
     # GPIO.output(CS, GPIO.LOW)
     
@@ -1576,34 +1627,34 @@ def update_temp_ln2_tc_btn(n_clicks, id):
                 'margin': "1px"}
 
 
-# callback function for when file path is changed
-@callback(
-    Input(component_id="file-path-in", component_property='value')
-)
-def update_file_path(path):
-    # TODO: add functionality for file path change
-    print("File path changed to ", path)
-    return
+# # callback function for when file path is changed
+# @callback(
+#     Input(component_id="file-path-in", component_property='value')
+# )
+# def update_file_path(path):
+#     # TODO: add functionality for file path change
+#     print("File path changed to ", path)
+#     return
 
 
-# callback function for when file name is changed
-@callback(
-    Input(component_id="file-name-in", component_property='value')
-)
-def update_file_name(name):
-    # TODO: add functionality for file name change
-    print("File name changed to ", name)
-    return
+# # callback function for when file name is changed
+# @callback(
+#     Input(component_id="file-name-in", component_property='value')
+# )
+# def update_file_name(name):
+#     # TODO: add functionality for file name change
+#     print("File name changed to ", name)
+#     return
 
 
-# callback function for when logging freq is changed
-@callback(
-    Input(component_id="log-freq-in", component_property='value')
-)
-def update_log_freq(freq):
-    # TODO: add functionality for logging freq change
-    print("Logging frequency changed to ", freq)
-    return
+# # callback function for when logging freq is changed
+# @callback(
+#     Input(component_id="log-freq-in", component_property='value')
+# )
+# def update_log_freq(freq):
+#     # TODO: add functionality for logging freq change
+#     print("Logging frequency changed to ", freq)
+#     return
 
 
 # callback function for when logging TCs button is pressed
@@ -1696,18 +1747,20 @@ def update_log_ln2_status_btn(n_clicks):
      Output(component_id="btn-heater-status", component_property="style"),
      Output(component_id="btn-h1-status", component_property="style")],
     Input(component_id="int-comp", component_property="n_intervals"),
-    State(component_id='tc-data-store', component_property='data')
+    [State(component_id='tc-data-store', component_property='data'),
+    State(component_id='btn-h1-override-on-off', component_property='style'),
+    State(component_id='btn-heater-override-on-off', component_property='style'),
+    State(component_id='btn-ln2-override-on-off', component_property='style')]
 
 )
-def control_loop(n_intervals, data):
+def control_loop(n_intervals, data, h1_override_style, h2_override_style, ln2_override_style):
     # heater_status = {}
     # ln2_status = {}
     # h1_status = {}
 
     # H2
-    if data['h2-object-target'] and type(data['h2-object-target'][-1]) != type(None) and float(data['h2-object-target'][-1]) > data['h2-temp'][-1]:
-        # heater on
-        print("heater on")
+    if h2_override_style['background-color'] == 'rgb(55,140,77)':
+        GPIO.output(H1, GPIO.HIGH)
         heater_status = {
                             'height': "3vh", 'width': "10vw", 'background-color': "rgb(230, 14, 7)",  'color': "white",
                             'font-size': "2vh", 'margin': "0vh auto", 'border-radius': '10px',  # Rounded corners to enhance the glow effect
@@ -1715,27 +1768,41 @@ def control_loop(n_intervals, data):
                             'border': '2px solid rgba(255, 0, 0, 0.8)'  # Slightly glowing border
                         }
     else:
-        heater_status = {
-                            'height': "3vh", 'width': "10vw", 'background-color': "rgb(140,20,11)", 'color': "white",
-                            'font-size': "2vh", 'margin': "0vh auto"
-                        }
+        if data['h2-object-target'] and type(data['h2-object-target'][-1]) != type(None) and float(data['h2-object-target'][-1]) > data['h2-temp'][-1]:
+            # heater on
+            print("heater on")
+            GPIO.output(H2, GPIO.HIGH)
+            heater_status = {
+                                'height': "3vh", 'width': "10vw", 'background-color': "rgb(230, 14, 7)",  'color': "white",
+                                'font-size': "2vh", 'margin': "0vh auto", 'border-radius': '10px',  # Rounded corners to enhance the glow effect
+                                'box-shadow': '0 0 10px rgba(255, 0, 0, 0.7), 0 0 20px rgba(255, 0, 0, 0.5), 0 0 30px rgba(255, 0, 0, 0.3)',  # Glow effect
+                                'border': '2px solid rgba(255, 0, 0, 0.8)'  # Slightly glowing border
+                            }
+        else:
+            GPIO.output(H2, GPIO.LOW)
+            heater_status = {
+                                'height': "3vh", 'width': "10vw", 'background-color': "rgb(140,20,11)", 'color': "white",
+                                'font-size': "2vh", 'margin': "0vh auto"
+                            }
         
-    if data['h2-max'] and data['h2-max'][-1]:
-        print('heater_max')
-        heater_status = {
-                            'height': "3vh", 'width': "10vw", 'background-color': "rgb(140,20,11)", 'color': "white",
-                            'font-size': "2vh", 'margin': "0vh auto"
-                        }
-    if data['over-temp'] and data['over-temp'][-1]: 
-        print('over_temp')
-        heater_status = {
-                            'height': "3vh", 'width': "10vw", 'background-color': "rgb(140,20,11)", 'color': "white",
-                            'font-size': "2vh", 'margin': "0vh auto"
-                        }
+        if data['h2-max'] and data['h2-max'][-1]:
+            print('heater_max')
+            GPIO.output(H2, GPIO.LOW)
+            heater_status = {
+                                'height': "3vh", 'width': "10vw", 'background-color': "rgb(140,20,11)", 'color': "white",
+                                'font-size': "2vh", 'margin': "0vh auto"
+                            }
+        if data['over-temp'] and data['over-temp'][-1]: 
+            print('over_temp')
+            GPIO.output(H2, GPIO.LOW)
+            heater_status = {
+                                'height': "3vh", 'width': "10vw", 'background-color': "rgb(140,20,11)", 'color': "white",
+                                'font-size': "2vh", 'margin': "0vh auto"
+                            }
         
     # LN2
-    if (data['ln2-object-target']) and (data['ln2-temp']) and (type(data['ln2-object-target'][-1]) != type(None)) and (float(data['ln2-object-target'][-1]) < data['ln2-temp'][-1]):
-        print('ln2 on')
+    if ln2_override_style['background-color'] == 'rgb(55,140,77)':
+        GPIO.output(LN2, GPIO.HIGH)
         ln2_status = {
                         'height': "7vh", 'width': "7vw", 'background-color': "rgb(56, 217, 7)", 'color': "white",
                         'font-size': "2vh", 'margin': "1vh 1vh", 'border-radius': '10px',  # Rounded corners to enhance the glow effect
@@ -1743,30 +1810,53 @@ def control_loop(n_intervals, data):
                         'border': '2px solid rgba(0, 255, 0, 0.8)'  # Slightly glowing green border
                     }
     else:
-        ln2_status = {
-                        'height': "7vh", 'width': "7vw", 'background-color': "rgb(20,82,29)", 'color': "white",
-                        'font-size': "2vh", 'margin': "1vh 1vh"
-                     }
-        
-    if data['shroud-min'] and data['shroud-min'][-1]:
-        ln2_status = {
-                        'height': "7vh", 'width': "7vw", 'background-color': "rgb(20,82,29)", 'color': "white",
-                        'font-size': "2vh", 'margin': "1vh 1vh"
-                     }
+        if (data['ln2-object-target']) and (data['ln2-temp']) and (type(data['ln2-object-target'][-1]) != type(None)) and (float(data['ln2-object-target'][-1]) < data['ln2-temp'][-1]):
+            print('ln2 on')
+            GPIO.output(LN2, GPIO.HIGH)
+            ln2_status = {
+                            'height': "7vh", 'width': "7vw", 'background-color': "rgb(56, 217, 7)", 'color': "white",
+                            'font-size': "2vh", 'margin': "1vh 1vh", 'border-radius': '10px',  # Rounded corners to enhance the glow effect
+                            'box-shadow': '0 0 15px rgba(0, 255, 0, 0.7), 0 0 30px rgba(0, 255, 0, 0.5), 0 0 45px rgba(0, 255, 0, 0.3)',  # Glowing green effect
+                            'border': '2px solid rgba(0, 255, 0, 0.8)'  # Slightly glowing green border
+                        }
+        else:
+            GPIO.output(LN2, GPIO.LOW)
+            ln2_status = {
+                            'height': "7vh", 'width': "7vw", 'background-color': "rgb(20,82,29)", 'color': "white",
+                            'font-size': "2vh", 'margin': "1vh 1vh"
+                        }
+            
+        if data['shroud-min'] and data['shroud-min'][-1]:
+            GPIO.output(LN2, GPIO.LOW)
+            ln2_status = {
+                            'height': "7vh", 'width': "7vw", 'background-color': "rgb(20,82,29)", 'color': "white",
+                            'font-size': "2vh", 'margin': "1vh 1vh"
+                        }
 
     # H1
-    if data['h1-temp'] and data['h1-temp'][-1] > H1_TEMP:
-        h1_status = {
-                        'height': "4vh", 'width': "10vw", 'background-color': "rgb(140,20,11)", 'color': "white",
-                        'font-size': "2vh", 'margin': "0.5vh 1vh"
-                    }
-    else:
+    if h1_override_style['background-color'] == 'rgb(55,140,77)':
+        GPIO.output(H1, GPIO.HIGH)
         h1_status = {
                         'height': "4vh", 'width': "10vw", 'background-color': "rgb(230, 14, 7)", 'color': "white",
                         'font-size': "2vh", 'margin': "0.5vh 1vh", 'border-radius': '10px',  # Rounded corners for a smooth glow effect
                         'box-shadow': '0 0 15px rgba(255, 0, 0, 0.7), 0 0 30px rgba(255, 0, 0, 0.5), 0 0 45px rgba(255, 0, 0, 0.3)',  # Glowing red effect
                         'border': '2px solid rgba(255, 0, 0, 0.8)'  # Slightly glowing red border
                     }
+    else:
+        if data['h1-temp'] and data['h1-temp'][-1] > H1_TEMP:
+            GPIO.output(H1, GPIO.LOW)
+            h1_status = {
+                            'height': "4vh", 'width': "10vw", 'background-color': "rgb(140,20,11)", 'color': "white",
+                            'font-size': "2vh", 'margin': "0.5vh 1vh"
+                        }
+        else:
+            GPIO.output(H1, GPIO.HIGH)
+            h1_status = {
+                            'height': "4vh", 'width': "10vw", 'background-color': "rgb(230, 14, 7)", 'color': "white",
+                            'font-size': "2vh", 'margin': "0.5vh 1vh", 'border-radius': '10px',  # Rounded corners for a smooth glow effect
+                            'box-shadow': '0 0 15px rgba(255, 0, 0, 0.7), 0 0 30px rgba(255, 0, 0, 0.5), 0 0 45px rgba(255, 0, 0, 0.3)',  # Glowing red effect
+                            'border': '2px solid rgba(255, 0, 0, 0.8)'  # Slightly glowing red border
+                        }
 
     return ln2_status, heater_status, h1_status
 
