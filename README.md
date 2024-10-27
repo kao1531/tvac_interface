@@ -5,10 +5,15 @@ pip install dash
 pip install pandas
 ```
 To run the application: 
+Make sure that the script is executable:
 ```
-python tvac_interface.py
+chmod +x run_tvac.sh
 ```
-The application can then be accessed at http://127.0.0.1:8050/
+Execute the script to run the application:
+```
+./run_tvac.sh
+```
+The interface can then be accessed at http://127.0.0.1:8050/
 
 To run on Raspberry Pi: 
 
